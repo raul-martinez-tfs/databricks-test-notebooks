@@ -1,2 +1,63 @@
 # Databricks notebook source
+# MAGIC %md
+# MAGIC # cntrl_tower_fcf_fcst_nav_ger.sql
+# MAGIC 
+# MAGIC s3://tfsdl-edp-supplychain-prod/workspace/cntrl_tower_tbls/cntrl_tower_fcf_fcst_nav_ger.sql
+
+# COMMAND ----------
+
+# -- /**************************************************************************
+# -- Artefact Name :- fcf control tower for Lighthouse 
+# -- Description :-   final Consensus forecat control tower for Lighthouse 
+# -- -------------------------------------------------------------------------------------------------------------------------------
+# -- Change Log
+# -- Version :        Date :                                Description                                     Changed By
+# -- -------------------------------------------------------------------------------------------------------------------------------
+# -- 0.0            	  10-06-2022                  			 First draft of sql file    			       Vijay Kelkar
+# -- 1.0				  29-06-2022             Replaced cal_yr_mth_nbr with fscl_yr_prd_nbr                  Bhaskar Reddy
+# -- 2.0                23-09-2022            Added new condition fcf_yearqtrnbr is not null              Vijay Kelkar,Lekhna Potla
+# -- **************************************************************************/
+# -- Databricks notebook source
+
+# select * from (
+# SELECT 
+# concat(trim(sup_dmd_table.item_nbr),'|CAGER' )  as fcf_sku_site_cd,
+# cast(MthConv.fscl_yr_qtr_nbr as string) as fcf_yearqtrnbr,
+# sum(sup_dmd_table.qty) as fcf_qty,
+# 'nav_ger' as src_sys_cd,
+# cast(current_timestamp as string) as rec_crt_ts,
+# cast(current_timestamp as string) as rec_updt_ts,
+# cast(MthConv.fscl_yr_prd_nbr as string) as fcf_yearmthnbr
+# from
+#  f_forecast sup_dmd_table
+# left outer join (SELECT distinct fscl_yr_prd_nbr ,fscl_yr_qtr_nbr FROM  d_date where fscl_yr_nbr between date_format(add_months(current_date,-12),'yyyy') and date_format(add_months(current_date,24),'yyyy')) MthConv on sup_dmd_table.capture_yr_mth_nbr =MthConv.fscl_yr_prd_nbr
+# where sup_dmd_table.forecast_type ='FCF'  and  sup_dmd_table.src_sys_cd in ('nav_ger')
+# and  sup_dmd_table.capture_dt= (select max(sup_dmd_table.capture_dt) from  f_forecast sup_dmd_table where src_sys_cd = 'nav_ger' )
+# group by 
+# fcf_sku_site_cd,MthConv.fscl_yr_qtr_nbr,MthConv.fscl_yr_prd_nbr
+# ) where fcf_yearqtrnbr is not null 
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC 
+# MAGIC ### tables used on query
+# MAGIC - f_forecast -> s3://tfsdl-edp-supplychain-prod/processed/f_forecast/
+# MAGIC - d_date -> s3://tfsdl-edp-common-dims-prod/processed/d_date/
+
+# COMMAND ----------
+
+spark.read.format('delta').load('s3://tfsdl-edp-supplychain-prod/processed/f_forecast/').createOrReplaceTempView('f_forecast')
+spark.read.format('delta').load('s3://tfsdl-edp-common-dims-prod/processed/d_date/').createOrReplaceTempView('d_date')
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
 
