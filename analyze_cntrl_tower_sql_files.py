@@ -52,11 +52,72 @@ spark.read.format('delta').load('s3://tfsdl-edp-common-dims-prod/processed/d_dat
 
 # COMMAND ----------
 
-
+# MAGIC %sql
+# MAGIC 
+# MAGIC select * 
+# MAGIC from f_forecast 
+# MAGIC limit 10
+# MAGIC ;
 
 # COMMAND ----------
 
+# MAGIC %sql
+# MAGIC 
+# MAGIC select * 
+# MAGIC from d_date 
+# MAGIC limit 10
+# MAGIC ;
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC 
+# MAGIC ### test query
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC select * 
+# MAGIC from (
+# MAGIC   select 
+# MAGIC     concat(trim(sup_dmd_table.item_nbr),'|CAGER' ) as fcf_sku_site_cd,
+# MAGIC     cast(MthConv.fscl_yr_qtr_nbr as string) as fcf_yearqtrnbr,
+# MAGIC     sum(sup_dmd_table.qty) as fcf_qty,
+# MAGIC     'nav_ger' as src_sys_cd,
+# MAGIC     cast(current_timestamp as string) as rec_crt_ts,
+# MAGIC     cast(current_timestamp as string) as rec_updt_ts,
+# MAGIC     cast(MthConv.fscl_yr_prd_nbr as string) as fcf_yearmthnbr
+# MAGIC   from f_forecast sup_dmd_table
+# MAGIC   left outer join (
+# MAGIC     select 
+# MAGIC       distinct fscl_yr_prd_nbr,
+# MAGIC       fscl_yr_qtr_nbr 
+# MAGIC     from  d_date 
+# MAGIC     where fscl_yr_nbr between date_format(add_months(current_date,-12),'yyyy') and date_format(add_months(current_date,24),'yyyy')
+# MAGIC     ) MthConv 
+# MAGIC   on sup_dmd_table.capture_yr_mth_nbr =MthConv.fscl_yr_prd_nbr
+# MAGIC   where sup_dmd_table.forecast_type ='FCF'  
+# MAGIC     and sup_dmd_table.src_sys_cd in ('nav_ger')
+# MAGIC     and sup_dmd_table.capture_dt=(select max(sup_dmd_table.capture_dt) from f_forecast sup_dmd_table where src_sys_cd = 'nav_ger')
+# MAGIC   group by fcf_sku_site_cd, MthConv.fscl_yr_qtr_nbr, MthConv.fscl_yr_prd_nbr
+# MAGIC ) 
+# MAGIC where fcf_yearqtrnbr is not null 
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC 
+# MAGIC ### test sub-queries
+
+# COMMAND ----------
+
+# MAGIC %sql 
+# MAGIC 
+# MAGIC select 
+# MAGIC   distinct fscl_yr_prd_nbr,
+# MAGIC   fscl_yr_qtr_nbr 
+# MAGIC from  d_date 
+# MAGIC where fscl_yr_nbr between date_format(add_months(current_date,-12),'yyyy') and date_format(add_months(current_date,24),'yyyy')
 
 # COMMAND ----------
 
