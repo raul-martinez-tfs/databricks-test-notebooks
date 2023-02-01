@@ -47,8 +47,37 @@
 
 # COMMAND ----------
 
+spark.read.format('delta').load('s3://tfsdl-edp-supplychain-prod/processed/f_cntrl_tower_lh_aggr_tbl/').createOrReplaceTempView('f_cntrl_tower_lh_aggr_tbl')
 spark.read.format('delta').load('s3://tfsdl-edp-supplychain-prod/processed/f_forecast/').createOrReplaceTempView('f_forecast')
 spark.read.format('delta').load('s3://tfsdl-edp-common-dims-prod/processed/d_date/').createOrReplaceTempView('d_date')
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC 
+# MAGIC select * 
+# MAGIC from f_cntrl_tower_lh_aggr_tbl 
+# MAGIC limit 10
+# MAGIC ;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC 
+# MAGIC select count(*) from f_cntrl_tower_lh_aggr_tbl 
+# MAGIC ;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC 
+# MAGIC select count(*)
+# MAGIC from (
+# MAGIC   select sku_site_cd, recpt_qty  
+# MAGIC   from f_cntrl_tower_lh_aggr_tbl 
+# MAGIC   group by sku_site_cd, recpt_qty 
+# MAGIC )
+# MAGIC ;
 
 # COMMAND ----------
 
