@@ -94,6 +94,7 @@ Unit_of_Measure.createOrReplaceTempView("Unit_of_Measure")
 # MAGIC                                                    Replaced plant_cd logic                             Raul Martinez
 # MAGIC                                                    Replaced lot_nbr logic                              Raul Martinez
 # MAGIC                                                    Replaced invntry_loc_name logic                     Raul Martinez
+# MAGIC                                                    Added consignment_qty logic                         Raul Martinez
 # MAGIC **************************************************************************/
 # MAGIC 
 # MAGIC with consignment_qty_records as (
@@ -102,7 +103,7 @@ Unit_of_Measure.createOrReplaceTempView("Unit_of_Measure")
 # MAGIC     trim(a.pxmcu) as plant_cd,
 # MAGIC     b.prlotn as lot_nbr,
 # MAGIC     b.prlocn as invntry_loc_name,
-# MAGIC     a.pxqtyo/10000 as consignment_qty 
+# MAGIC     sum(a.pxqtyo/10000) as consignment_qty 
 # MAGIC   from f43092 a -- Need to convert the qty in to base unit of measure
 # MAGIC   left outer join f43121 b
 # MAGIC     on trim(cast(cast(a.pxdoco as integer) as string))= trim(cast(cast(b.PRDOCO as integer) as string))
@@ -114,26 +115,32 @@ Unit_of_Measure.createOrReplaceTempView("Unit_of_Measure")
 # MAGIC     and a.pxoprc = 'CONS' 
 # MAGIC     and a.pxupib = 'QTO1'
 # MAGIC     and a.pxqtyo/10000 >0
-# MAGIC     and trim(PRLITM) = '9101083'
-# MAGIC     and trim(PRMCU) ='US01'
-# MAGIC     and trim(PxMCU) ='US01'
 # MAGIC     and trim(b.PRDCT) ='OV'
 # MAGIC     and b.prmatc in('1','2')
+# MAGIC --     and trim(PRLITM) = '50122M03H25' and trim(PRMCU) = 'US02' -- test case 1: no match between tables, just append vals
+# MAGIC --     and trim(PRLITM) = '4358293' and trim(PRMCU) = 'SG05' -- test case 2: all match between tables, just replace vals
+# MAGIC     group by item_nbr, plant_cd, lot_nbr, invntry_loc_name
 # MAGIC ),
 # MAGIC 
 # MAGIC f_invntry_bal_dly_hist as (
 # MAGIC   select distinct
 # MAGIC       'e1lsg' as src_sys_cd,
-# MAGIC       trim(f4102.iblitm) as item_nbr,
 # MAGIC       cast(null as string) as item_desc,
+# MAGIC --       trim(f4102.iblitm) as item_nbr,
+# MAGIC       case when cqr.item_nbr is null then trim(f4102.iblitm) else cqr.item_nbr end as item_nbr,
+# MAGIC --       trim(f4102.ibmcu) as plant_cd,
+# MAGIC       case when cqr.plant_cd is null then trim(f4102.ibmcu) else cqr.plant_cd end as plant_cd,
+# MAGIC --       cast(F41021.lilotn as string) as lot_nbr,
+# MAGIC       case when cqr.lot_nbr is null then cast(F41021.lilotn as string) else cqr.lot_nbr end as lot_nbr,
+# MAGIC --       cast(F41021.lilocn as string) as invntry_loc_name,
+# MAGIC       case when cqr.invntry_loc_name is null then cast(F41021.lilocn as string) else cqr.invntry_loc_name end as invntry_loc_name,
+# MAGIC --       cast(0 as double) as consignment_qty,
+# MAGIC       case when cqr.consignment_qty is null then cast(0 as double) else cqr.consignment_qty end as consignment_qty,
 # MAGIC       '' as item_type,
 # MAGIC       '' as item_type_desc,
-# MAGIC       trim(f4102.ibmcu) as plant_cd,
 # MAGIC       cast(date_format(date_sub(current_timestamp,1),'yMMdd') as string) as capture_dt,
 # MAGIC       cast(d_dt.fscl_yr_prd_nbr as decimal(38,0)) as capture_yr_mth_nbr,
-# MAGIC       cast(F41021.lilotn as string) as lot_nbr,
 # MAGIC       'NA' as invntry_loc_cd,
-# MAGIC       cast(F41021.lilocn as string) as invntry_loc_name,
 # MAGIC       'NA' as strg_bin_cd,
 # MAGIC       cast(f0006.mcco as string) as  co_cd,
 # MAGIC       cast(f0010.CCNAME as string) as co_name,
@@ -226,23 +233,20 @@ Unit_of_Measure.createOrReplaceTempView("Unit_of_Measure")
 # MAGIC       on trim(F0005_div.DRSY)= '41' 
 # MAGIC         and trim(F0005_div.DRRT)='S1' 
 # MAGIC         and trim(F0005_div.DRKY)=trim(f4102.IBSRP1)
-# MAGIC   where trim(f4102.iblitm) = '9101083' and trim(f4102.ibmcu) = 'US01'
+# MAGIC   full outer join consignment_qty_records cqr
+# MAGIC       on cqr.item_nbr=trim(f4102.iblitm)
+# MAGIC         and cqr.plant_cd=trim(f4102.ibmcu)
+# MAGIC         and cqr.lot_nbr=cast(F41021.lilotn as string)
+# MAGIC         and cqr.invntry_loc_name=cast(F41021.lilocn as string)
+# MAGIC --   where (trim(f4102.iblitm) = '50122M03H25' or cqr.item_nbr = '50122M03H25') and (trim(f4102.ibmcu) = 'US02' or cqr.plant_cd='US02') -- test case 1: no match between tables, just append vals
+# MAGIC --   where (trim(f4102.iblitm) = '4358293' or cqr.item_nbr = '4358293') and (trim(f4102.ibmcu) = 'SG05' or cqr.plant_cd='SG05') -- test case 2: all match between tables, just replace vals
 # MAGIC )
 # MAGIC 
-# MAGIC select 
-# MAGIC   t1.*,
-# MAGIC   t2.consignment_qty,
-# MAGIC   case when t1.item_nbr is null then t2.item_nbr else t1.item_nbr end as item_nbr,
-# MAGIC   case when t1.plant_cd is null then t2.plant_cd else t1.plant_cd end as plant_cd,
-# MAGIC   case when t1.lot_nbr is null then t2.lot_nbr else t1.lot_nbr end as lot_nbr,
-# MAGIC   case when t1.invntry_loc_name is null then t2.invntry_loc_name else t1.invntry_loc_name end as invntry_loc_name
-# MAGIC from f_invntry_bal_dly_hist t1
-# MAGIC full outer join consignment_qty_records t2
-# MAGIC   on t1.item_nbr=t2.item_nbr
-# MAGIC     and t1.plant_cd=t2.plant_cd
-# MAGIC     and t1.lot_nbr=t2.lot_nbr
-# MAGIC     and t1.invntry_loc_name=t2.invntry_loc_name
-# MAGIC -- where t1.item_nbr = '9101083' and t1.plant_cd = 'US01'
+# MAGIC select * 
+# MAGIC from f_invntry_bal_dly_hist
+# MAGIC -- where item_nbr = '50122M03H25' and plant_cd='US02' -- test case 1: no match between tables, just append vals
+# MAGIC -- where item_nbr = '4358293' and plant_cd='SG05' -- test case 2: all match between tables, just replace vals
+# MAGIC 
 # MAGIC ;
 
 # COMMAND ----------
