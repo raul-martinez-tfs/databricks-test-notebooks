@@ -128,367 +128,7 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC 1.3            08-11-2022						   Replace on_hand_qty logic                            Neha Chaturvedi	
 # MAGIC 1.4            09-11-2022						   Replace avail_qty logic                            Neha Chaturvedi
 # MAGIC 1.5            27-01-2022                          Remove Where Condition	                          Neha Chaturvedi
-# MAGIC 1.6            01-02-2022                          Replaced avail_qty logic                            Raul Martinez
-# MAGIC                                                    Replaced on_hand_qty logic                          Raul Martinez
-# MAGIC                                                    Replaced qa_inspn_qty logic                         Raul Martinez
-# MAGIC                                                    Replaced blocked_qty logic                          Raul Martinez
-# MAGIC                                                    Replaced item_nbr logic                             Raul Martinez
-# MAGIC                                                    Replaced plant_cd logic                             Raul Martinez
-# MAGIC                                                    Replaced lot_nbr logic                              Raul Martinez
-# MAGIC                                                    Replaced invntry_loc_name logic                     Raul Martinez
-# MAGIC                                                    Added consignment_qty logic                         Raul Martinez
-# MAGIC **************************************************************************/
-# MAGIC 
-# MAGIC with consignment_qty_records as (
-# MAGIC   select 
-# MAGIC     trim(b.PRLITM) as item_nbr,
-# MAGIC     trim(a.pxmcu) as plant_cd,
-# MAGIC     b.prlotn as lot_nbr,
-# MAGIC     b.prlocn as invntry_loc_name,
-# MAGIC     sum(a.pxqtyo/10000) as consignment_qty 
-# MAGIC   from f43092 a -- Need to convert the qty in to base unit of measure
-# MAGIC   left outer join f43121 b
-# MAGIC     on trim(cast(cast(a.pxdoco as integer) as string))= trim(cast(cast(b.PRDOCO as integer) as string))
-# MAGIC       and a.pxdcto = b.prdcto
-# MAGIC       and trim(cast(cast(a.pxlnid as integer) as string))= trim(cast(cast(b.prlnid as integer) as string))
-# MAGIC       and trim(cast(cast(a.pxnlin as integer) as string))= trim(cast(cast(prnlin as integer) as string)) 
-# MAGIC       and trim(a.pxmcu)=trim(b.prmcu)
-# MAGIC   where a.pxnrou = 'CONS' 
-# MAGIC     and a.pxoprc = 'CONS' 
-# MAGIC     and a.pxupib = 'QTO1'
-# MAGIC     and a.pxqtyo/10000 >0
-# MAGIC     and trim(b.PRDCT) ='OV'
-# MAGIC     and b.prmatc in('1','2')
-# MAGIC --     and trim(PRLITM) = '50122M03H25' and trim(PRMCU) = 'US02' -- test case 1: no match between tables, just append vals
-# MAGIC --     and trim(PRLITM) = '4358293' and trim(PRMCU) = 'SG05' -- test case 2: all match between tables, just replace vals
-# MAGIC     group by item_nbr, plant_cd, lot_nbr, invntry_loc_name
-# MAGIC ),
-# MAGIC 
-# MAGIC f_invntry_bal_dly_hist as (
-# MAGIC   select distinct
-# MAGIC       'e1lsg' as src_sys_cd,
-# MAGIC       cast(null as string) as item_desc,
-# MAGIC --       trim(f4102.iblitm) as item_nbr,
-# MAGIC       case when cqr.item_nbr is null then trim(f4102.iblitm) else cqr.item_nbr end as item_nbr,
-# MAGIC --       trim(f4102.ibmcu) as plant_cd,
-# MAGIC       case when cqr.plant_cd is null then trim(f4102.ibmcu) else cqr.plant_cd end as plant_cd,
-# MAGIC --       cast(F41021.lilotn as string) as lot_nbr,
-# MAGIC       case when cqr.lot_nbr is null then cast(F41021.lilotn as string) else cqr.lot_nbr end as lot_nbr,
-# MAGIC --       cast(F41021.lilocn as string) as invntry_loc_name,
-# MAGIC       case when cqr.invntry_loc_name is null then cast(F41021.lilocn as string) else cqr.invntry_loc_name end as invntry_loc_name,
-# MAGIC --       cast(0 as double) as consignment_qty,
-# MAGIC       case when cqr.consignment_qty is null then cast(0 as double) else cqr.consignment_qty end as consignment_qty,
-# MAGIC       '' as item_type,
-# MAGIC       '' as item_type_desc,
-# MAGIC       cast(date_format(date_sub(current_timestamp,1),'yMMdd') as string) as capture_dt,
-# MAGIC       cast(d_dt.fscl_yr_prd_nbr as decimal(38,0)) as capture_yr_mth_nbr,
-# MAGIC       'NA' as invntry_loc_cd,
-# MAGIC       'NA' as strg_bin_cd,
-# MAGIC       cast(f0006.mcco as string) as  co_cd,
-# MAGIC       cast(f0010.CCNAME as string) as co_name,
-# MAGIC       case when f0010.CCCRCD='RMB' then 'CNY' else f0010.CCCRCD end as co_curncy_cd,
-# MAGIC       'Finished Goods' as invntry_stk_type_cd,
-# MAGIC       'NA'  as valuation_cd,
-# MAGIC       cast(date_format(TO_DATE(cast(f41021.LILRCJ_dt as string),'yyyyMMdd'),'yMMdd') as string) as  recpt_dt,
-# MAGIC       -- ((f41021.LIPQOH/10000) - (f41021.LIHCOM/10000) - (f41021.LIPCOM/10000) - (f41021.LIFCOM/10000) - (f41021.LIFUN1/10000) - (f41021.LIQOWO/10000)) as avail_qty,
-# MAGIC       -- cast(0 as double) as avail_qty,
-# MAGIC       cast((CASE WHEN trim(f41021.LILOTS) in ('#','C','D','G','M','P','W','','null') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as avail_qty,
-# MAGIC       -- cast((CASE WHEN trim(f41021.LILOTS) in ('C','D','G','M','P','Q','q','W','','null') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as on_hand_qty,
-# MAGIC       -- cast((CASE WHEN trim(f41021.LILOTS) in ('C','D','G','M','P','Q','W','','null') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as on_hand_qty,
-# MAGIC       'NA' as on_hand_qty,
-# MAGIC       --(case when (TRIM(LIPBIN) = 'P' OR TRIM(LIPBIN) is NULL ) then 0 else (CASE WHEN TRIM(LILOTS) IS NULL THEN 0 ELSE (LIPQOH / 10000) end) end) as on_hold_qty,
-# MAGIC       cast(0 as double) as on_hold_qty, 
-# MAGIC       cast(0 as double) as transfer_qty,
-# MAGIC       -- cast(0 as double) as qa_inspn_qty,
-# MAGIC       cast((CASE WHEN trim(f41021.LILOTS) in ('Q') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as qa_inspn_qty,
-# MAGIC       -- cast(0 as double) as blocked_qty,
-# MAGIC       cast((CASE WHEN trim(f41021.LILOTS) in ('E','F','H','R','S','V','X') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as blocked_qty,
-# MAGIC       cast(0 as double) as rstrct_qty,
-# MAGIC       cast(null as double)  as unit_cost_co_amt,
-# MAGIC       cast(null as double) as unit_cost_lcur_amt,
-# MAGIC       cast(null as double) as unit_cost_co_pmar_amt,
-# MAGIC       coalesce(hfm.LKUP_VAL_01,'NA') as hfm_entity ,
-# MAGIC       case when trim(f0005.DRDL01)='RMPEnvironmental' then 'FSI' when trim(f0005.DRDL01) in ('BulkEquipmentSvcs','MATERIALS & MINERALS','BulkEquipment','PackagingWI') then 'PPA' else trim(f0005.DRDL01) end as business_unit,
-# MAGIC       cast(trim(F0005_div.DRDL01) as string) as div_cd,
-# MAGIC       cast(f41021.LILOTS as string) as lot_stat_cd,
-# MAGIC       cast(F0005_LOT.DRDL01 as string) as lot_stat_nm,
-# MAGIC       cast(f41021.LIPBIN as string) as prim_loc_flg,
-# MAGIC       'NA' as flr_stk_cd,
-# MAGIC       'NA' as rejected_mat_flag,
-# MAGIC       cast(F0005_UOM.DRDL01 as string) as stk_uom_cd,
-# MAGIC       'NA' as  stk_uom_nm,
-# MAGIC       cast(f4102.IBSRP3 as string) as prod_family,
-# MAGIC       cast(F0005_PROD.DRDL01 as string) as prod_fam_typ,
-# MAGIC       'NA' as gl_account,
-# MAGIC       'NA' as src_crt_by,
-# MAGIC       'NA' as src_crt_ts,
-# MAGIC       cast(current_timestamp as string) as rec_crt_ts,
-# MAGIC       cast(current_timestamp as string) as rec_updt_ts
-# MAGIC   from F41021  
-# MAGIC   left outer join f4102_adt f4102 
-# MAGIC       on trim(cast(cast(f4102.ibitm as integer) as string))= trim(cast(cast(F41021.LIITM as integer) as string)) 
-# MAGIC         and trim(F41021.LIMCU) = trim(f4102.ibmcu)
-# MAGIC   left outer join f4105
-# MAGIC       on  trim(cast(cast(F41021.LIITM as integer) as string)) = trim(cast(cast(f4105.COITM as integer) as string)) 
-# MAGIC         and trim(F41021.LIMCU) = trim(f4105.COMCU)
-# MAGIC   left outer join f0006 
-# MAGIC       on f0006.mcmcu = f41021.limcu
-# MAGIC   left outer join f4101_adt f4101 
-# MAGIC       on trim(f4101.IMITM) = trim(f41021.LIITM)
-# MAGIC   left outer join f0010 
-# MAGIC       on f0010.CCCO= f0006.MCCO
-# MAGIC   left outer join d_date d_dt 
-# MAGIC       on date_format(if(date_format(current_timestamp,'%h')>='0' 
-# MAGIC         and date_format(current_timestamp,'%h')<='12',date_sub(current_date,1),current_date),'yMMdd') = cast (d_dt.dt_key as string)
-# MAGIC   left outer join (
-# MAGIC           select 
-# MAGIC               curr_mnth.PMAR_RT as CO_PMAR_RT, 
-# MAGIC               curr_mnth.CURNCY_MTH_RT_KEY,
-# MAGIC               curr_mnth.YR_MTH_NBR,
-# MAGIC               curr_mnth.FROM_CURNCY_CD 
-# MAGIC           from d_curncy_mth_rt curr_mnth 
-# MAGIC           where TO_CURNCY_CD =  'USD'
-# MAGIC           ) co_curr_mth  
-# MAGIC       on co_curr_mth.YR_MTH_NBR = d_dt.fscl_yr_prd_nbr 
-# MAGIC         and co_curr_mth.FROM_CURNCY_CD = COALESCE(f0010.CCCRCD,'USD')
-# MAGIC   left outer join  edp_lkup hfm 
-# MAGIC       on hfm.lkup_key_01 = f0006.MCCO 
-# MAGIC         and  hfm.LKUP_TYP_NM ='CO_TO_HFM' 
-# MAGIC         and hfm.lkup_key_02 = 'E1LSG'
-# MAGIC   left outer join f0005 F0005_LOT 
-# MAGIC       on trim(F0005_LOT.DRSY)= '41' 
-# MAGIC         and trim(F0005_LOT.DRRT)='L' 
-# MAGIC         and trim(F0005_LOT.DRKY)=trim(f41021.LILOTS)
-# MAGIC   left outer join f0005 F0005_UOM 
-# MAGIC       on trim(F0005_UOM.DRSY)= '00' 
-# MAGIC         and trim(F0005_UOM.DRRT)='UM' 
-# MAGIC         and trim(F0005_UOM.DRKY)=trim(f4101.IMUOM1)
-# MAGIC   left outer join f0005 F0005_PROD 
-# MAGIC       on trim(F0005_PROD.DRSY)= '41' 
-# MAGIC         and trim(F0005_PROD.DRRT)='S3'  
-# MAGIC         and trim(F0005_PROD.DRKY)=trim(f4102.IBSRP3)
-# MAGIC   left outer join f0005 f0005 
-# MAGIC       on trim(f0005.DRSY)= '41' 
-# MAGIC         and trim(f0005.DRRT)='S2' 
-# MAGIC         and trim(f0005.DRKY)=trim(f4102.IBSRP2)
-# MAGIC   left outer join f0005 F0005_div 
-# MAGIC       on trim(F0005_div.DRSY)= '41' 
-# MAGIC         and trim(F0005_div.DRRT)='S1' 
-# MAGIC         and trim(F0005_div.DRKY)=trim(f4102.IBSRP1)
-# MAGIC   full outer join consignment_qty_records cqr
-# MAGIC       on cqr.item_nbr=trim(f4102.iblitm)
-# MAGIC         and cqr.plant_cd=trim(f4102.ibmcu)
-# MAGIC         and cqr.lot_nbr=cast(F41021.lilotn as string)
-# MAGIC         and cqr.invntry_loc_name=cast(F41021.lilocn as string)
-# MAGIC --   where (trim(f4102.iblitm) = '50122M03H25' or cqr.item_nbr = '50122M03H25') and (trim(f4102.ibmcu) = 'US02' or cqr.plant_cd='US02') -- test case 1: no match between tables, just append vals
-# MAGIC --   where (trim(f4102.iblitm) = '4358293' or cqr.item_nbr = '4358293') and (trim(f4102.ibmcu) = 'SG05' or cqr.plant_cd='SG05') -- test case 2: all match between tables, just replace vals
-# MAGIC )
-# MAGIC 
-# MAGIC select * 
-# MAGIC from f_invntry_bal_dly_hist
-# MAGIC --  where item_nbr = '50122M03H25' and plant_cd='US02' -- test case 1: no match between tables, just append vals
-# MAGIC where item_nbr = '4358293' and plant_cd='SG05' -- test case 2: all match between tables, just replace vals
-# MAGIC 
-# MAGIC ;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC 
-# MAGIC /**************************************************************************
-# MAGIC Artefact Name :- F_INVNTRY_BAL_DLY_HIST (SNAPSHOT)
-# MAGIC Description :-  This table will hold the information of the on-hand_qty for E1LSG system
-# MAGIC -------------------------------------------------------------------------------------------------------------------------------
-# MAGIC Change Log
-# MAGIC Version :        Date :                                Description                                     Changed By
-# MAGIC -------------------------------------------------------------------------------------------------------------------------------
-# MAGIC 0.0            18-08-2022	                       First draft of sql file    			                Vijay Kelkar
-# MAGIC 1.1            14-09-2022                          UOM Issue : all the qty divide by 10,000             Vijay Kelkar  
-# MAGIC 1.2            19-10-2022						   Replace dims table with raw table                    Neha Chaturvedi	
-# MAGIC 1.3            08-11-2022						   Replace on_hand_qty logic                            Neha Chaturvedi	
-# MAGIC 1.4            09-11-2022						   Replace avail_qty logic                            Neha Chaturvedi
-# MAGIC 1.5            27-01-2022                          Remove Where Condition	                          Neha Chaturvedi
-# MAGIC 1.6            01-02-2022                          Replaced avail_qty logic                            Raul Martinez
-# MAGIC                                                    Replaced on_hand_qty logic                          Raul Martinez
-# MAGIC                                                    Replaced qa_inspn_qty logic                         Raul Martinez
-# MAGIC                                                    Replaced blocked_qty logic                          Raul Martinez
-# MAGIC                                                    Replaced item_nbr logic                             Raul Martinez
-# MAGIC                                                    Replaced plant_cd logic                             Raul Martinez
-# MAGIC                                                    Replaced lot_nbr logic                              Raul Martinez
-# MAGIC                                                    Replaced invntry_loc_name logic                     Raul Martinez
-# MAGIC                                                    Added consignment_qty logic                         Raul Martinez
-# MAGIC **************************************************************************/
-# MAGIC 
-# MAGIC with consignment_qty_records as (
-# MAGIC   select 
-# MAGIC     trim(b.PRLITM) as item_nbr,
-# MAGIC     trim(a.pxmcu) as plant_cd,
-# MAGIC     b.prlotn as lot_nbr,
-# MAGIC     b.prlocn as invntry_loc_name,
-# MAGIC     sum(a.pxqtyo/10000) as consignment_qty 
-# MAGIC   from f43092 a -- Need to convert the qty in to base unit of measure
-# MAGIC   left outer join f43121 b
-# MAGIC     on trim(cast(cast(a.pxdoco as integer) as string))= trim(cast(cast(b.PRDOCO as integer) as string))
-# MAGIC       and a.pxdcto = b.prdcto
-# MAGIC       and trim(cast(cast(a.pxlnid as integer) as string))= trim(cast(cast(b.prlnid as integer) as string))
-# MAGIC       and trim(cast(cast(a.pxnlin as integer) as string))= trim(cast(cast(prnlin as integer) as string)) 
-# MAGIC       and trim(a.pxmcu)=trim(b.prmcu)
-# MAGIC   where a.pxnrou = 'CONS' 
-# MAGIC     and a.pxoprc = 'CONS' 
-# MAGIC     and a.pxupib = 'QTO1'
-# MAGIC     and a.pxqtyo/10000 >0
-# MAGIC     and trim(b.PRDCT) ='OV'
-# MAGIC     and b.prmatc in('1','2')
-# MAGIC --     and trim(PRLITM) = '50122M03H25' and trim(PRMCU) = 'US02' -- test case 1: no match between tables, just append vals
-# MAGIC --     and trim(PRLITM) = '4358293' and trim(PRMCU) = 'SG05' -- test case 2: all match between tables, just replace vals
-# MAGIC     group by item_nbr, plant_cd, lot_nbr, invntry_loc_name
-# MAGIC ),
-# MAGIC 
-# MAGIC f_invntry_bal_dly_hist as (
-# MAGIC   select distinct
-# MAGIC       'e1lsg' as src_sys_cd,
-# MAGIC       cast(null as string) as item_desc,
-# MAGIC --       trim(f4102.iblitm) as item_nbr,
-# MAGIC       case when cqr.item_nbr is null then trim(f4102.iblitm) else cqr.item_nbr end as item_nbr,
-# MAGIC --       trim(f4102.ibmcu) as plant_cd,
-# MAGIC       case when cqr.plant_cd is null then trim(f4102.ibmcu) else cqr.plant_cd end as plant_cd,
-# MAGIC --       cast(F41021.lilotn as string) as lot_nbr,
-# MAGIC       case when cqr.lot_nbr is null then cast(F41021.lilotn as string) else cqr.lot_nbr end as lot_nbr,
-# MAGIC --       cast(F41021.lilocn as string) as invntry_loc_name,
-# MAGIC       case when cqr.invntry_loc_name is null then cast(F41021.lilocn as string) else cqr.invntry_loc_name end as invntry_loc_name,
-# MAGIC --       cast(0 as double) as consignment_qty,
-# MAGIC       case when cqr.consignment_qty is null then cast(0 as double) else cqr.consignment_qty end as consignment_qty,
-# MAGIC       '' as item_type,
-# MAGIC       '' as item_type_desc,
-# MAGIC       cast(date_format(date_sub(current_timestamp,1),'yMMdd') as string) as capture_dt,
-# MAGIC       cast(d_dt.fscl_yr_prd_nbr as decimal(38,0)) as capture_yr_mth_nbr,
-# MAGIC       'NA' as invntry_loc_cd,
-# MAGIC       'NA' as strg_bin_cd,
-# MAGIC       cast(f0006.mcco as string) as  co_cd,
-# MAGIC       cast(f0010.CCNAME as string) as co_name,
-# MAGIC       case when f0010.CCCRCD='RMB' then 'CNY' else f0010.CCCRCD end as co_curncy_cd,
-# MAGIC       'Finished Goods' as invntry_stk_type_cd,
-# MAGIC       'NA'  as valuation_cd,
-# MAGIC       cast(date_format(TO_DATE(cast(f41021.LILRCJ_dt as string),'yyyyMMdd'),'yMMdd') as string) as  recpt_dt,
-# MAGIC       -- ((f41021.LIPQOH/10000) - (f41021.LIHCOM/10000) - (f41021.LIPCOM/10000) - (f41021.LIFCOM/10000) - (f41021.LIFUN1/10000) - (f41021.LIQOWO/10000)) as avail_qty,
-# MAGIC       -- cast(0 as double) as avail_qty,
-# MAGIC       cast((CASE WHEN trim(f41021.LILOTS) in ('#','C','D','G','M','P','W','','null') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as avail_qty,
-# MAGIC       -- cast((CASE WHEN trim(f41021.LILOTS) in ('C','D','G','M','P','Q','q','W','','null') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as on_hand_qty,
-# MAGIC       -- cast((CASE WHEN trim(f41021.LILOTS) in ('C','D','G','M','P','Q','W','','null') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as on_hand_qty,
-# MAGIC       'NA' as on_hand_qty,
-# MAGIC       --(case when (TRIM(LIPBIN) = 'P' OR TRIM(LIPBIN) is NULL ) then 0 else (CASE WHEN TRIM(LILOTS) IS NULL THEN 0 ELSE (LIPQOH / 10000) end) end) as on_hold_qty,
-# MAGIC       cast(0 as double) as on_hold_qty, 
-# MAGIC       cast(0 as double) as transfer_qty,
-# MAGIC       -- cast(0 as double) as qa_inspn_qty,
-# MAGIC       cast((CASE WHEN trim(f41021.LILOTS) in ('Q') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as qa_inspn_qty,
-# MAGIC       -- cast(0 as double) as blocked_qty,
-# MAGIC       cast((CASE WHEN trim(f41021.LILOTS) in ('E','F','H','R','S','V','X') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as blocked_qty,
-# MAGIC       cast(0 as double) as rstrct_qty,
-# MAGIC       cast(null as double)  as unit_cost_co_amt,
-# MAGIC       cast(null as double) as unit_cost_lcur_amt,
-# MAGIC       cast(null as double) as unit_cost_co_pmar_amt,
-# MAGIC       coalesce(hfm.LKUP_VAL_01,'NA') as hfm_entity ,
-# MAGIC       case when trim(f0005.DRDL01)='RMPEnvironmental' then 'FSI' when trim(f0005.DRDL01) in ('BulkEquipmentSvcs','MATERIALS & MINERALS','BulkEquipment','PackagingWI') then 'PPA' else trim(f0005.DRDL01) end as business_unit,
-# MAGIC       cast(trim(F0005_div.DRDL01) as string) as div_cd,
-# MAGIC       cast(f41021.LILOTS as string) as lot_stat_cd,
-# MAGIC       cast(F0005_LOT.DRDL01 as string) as lot_stat_nm,
-# MAGIC       cast(f41021.LIPBIN as string) as prim_loc_flg,
-# MAGIC       'NA' as flr_stk_cd,
-# MAGIC       'NA' as rejected_mat_flag,
-# MAGIC       cast(F0005_UOM.DRDL01 as string) as stk_uom_cd,
-# MAGIC       'NA' as  stk_uom_nm,
-# MAGIC       cast(f4102.IBSRP3 as string) as prod_family,
-# MAGIC       cast(F0005_PROD.DRDL01 as string) as prod_fam_typ,
-# MAGIC       'NA' as gl_account,
-# MAGIC       'NA' as src_crt_by,
-# MAGIC       'NA' as src_crt_ts,
-# MAGIC       cast(current_timestamp as string) as rec_crt_ts,
-# MAGIC       cast(current_timestamp as string) as rec_updt_ts
-# MAGIC   from F41021  
-# MAGIC   left outer join f4102_adt f4102 
-# MAGIC       on trim(cast(cast(f4102.ibitm as integer) as string))= trim(cast(cast(F41021.LIITM as integer) as string)) 
-# MAGIC         and trim(F41021.LIMCU) = trim(f4102.ibmcu)
-# MAGIC   left outer join f4105
-# MAGIC       on  trim(cast(cast(F41021.LIITM as integer) as string)) = trim(cast(cast(f4105.COITM as integer) as string)) 
-# MAGIC         and trim(F41021.LIMCU) = trim(f4105.COMCU)
-# MAGIC   left outer join f0006 
-# MAGIC       on f0006.mcmcu = f41021.limcu
-# MAGIC   left outer join f4101_adt f4101 
-# MAGIC       on trim(f4101.IMITM) = trim(f41021.LIITM)
-# MAGIC   left outer join f0010 
-# MAGIC       on f0010.CCCO= f0006.MCCO
-# MAGIC   left outer join d_date d_dt 
-# MAGIC       on date_format(if(date_format(current_timestamp,'%h')>='0' 
-# MAGIC         and date_format(current_timestamp,'%h')<='12',date_sub(current_date,1),current_date),'yMMdd') = cast (d_dt.dt_key as string)
-# MAGIC   left outer join (
-# MAGIC           select 
-# MAGIC               curr_mnth.PMAR_RT as CO_PMAR_RT, 
-# MAGIC               curr_mnth.CURNCY_MTH_RT_KEY,
-# MAGIC               curr_mnth.YR_MTH_NBR,
-# MAGIC               curr_mnth.FROM_CURNCY_CD 
-# MAGIC           from d_curncy_mth_rt curr_mnth 
-# MAGIC           where TO_CURNCY_CD =  'USD'
-# MAGIC           ) co_curr_mth  
-# MAGIC       on co_curr_mth.YR_MTH_NBR = d_dt.fscl_yr_prd_nbr 
-# MAGIC         and co_curr_mth.FROM_CURNCY_CD = COALESCE(f0010.CCCRCD,'USD')
-# MAGIC   left outer join  edp_lkup hfm 
-# MAGIC       on hfm.lkup_key_01 = f0006.MCCO 
-# MAGIC         and  hfm.LKUP_TYP_NM ='CO_TO_HFM' 
-# MAGIC         and hfm.lkup_key_02 = 'E1LSG'
-# MAGIC   left outer join f0005 F0005_LOT 
-# MAGIC       on trim(F0005_LOT.DRSY)= '41' 
-# MAGIC         and trim(F0005_LOT.DRRT)='L' 
-# MAGIC         and trim(F0005_LOT.DRKY)=trim(f41021.LILOTS)
-# MAGIC   left outer join f0005 F0005_UOM 
-# MAGIC       on trim(F0005_UOM.DRSY)= '00' 
-# MAGIC         and trim(F0005_UOM.DRRT)='UM' 
-# MAGIC         and trim(F0005_UOM.DRKY)=trim(f4101.IMUOM1)
-# MAGIC   left outer join f0005 F0005_PROD 
-# MAGIC       on trim(F0005_PROD.DRSY)= '41' 
-# MAGIC         and trim(F0005_PROD.DRRT)='S3'  
-# MAGIC         and trim(F0005_PROD.DRKY)=trim(f4102.IBSRP3)
-# MAGIC   left outer join f0005 f0005 
-# MAGIC       on trim(f0005.DRSY)= '41' 
-# MAGIC         and trim(f0005.DRRT)='S2' 
-# MAGIC         and trim(f0005.DRKY)=trim(f4102.IBSRP2)
-# MAGIC   left outer join f0005 F0005_div 
-# MAGIC       on trim(F0005_div.DRSY)= '41' 
-# MAGIC         and trim(F0005_div.DRRT)='S1' 
-# MAGIC         and trim(F0005_div.DRKY)=trim(f4102.IBSRP1)
-# MAGIC   full outer join consignment_qty_records cqr
-# MAGIC       on cqr.item_nbr=trim(f4102.iblitm)
-# MAGIC         and cqr.plant_cd=trim(f4102.ibmcu)
-# MAGIC         and cqr.lot_nbr=cast(F41021.lilotn as string)
-# MAGIC         and cqr.invntry_loc_name=cast(F41021.lilocn as string)
-# MAGIC --   where (trim(f4102.iblitm) = '50122M03H25' or cqr.item_nbr = '50122M03H25') and (trim(f4102.ibmcu) = 'US02' or cqr.plant_cd='US02') -- test case 1: no match between tables, just append vals
-# MAGIC --   where (trim(f4102.iblitm) = '4358293' or cqr.item_nbr = '4358293') and (trim(f4102.ibmcu) = 'SG05' or cqr.plant_cd='SG05') -- test case 2: all match between tables, just replace vals
-# MAGIC )
-# MAGIC 
-# MAGIC select * 
-# MAGIC from f_invntry_bal_dly_hist
-# MAGIC  where item_nbr = '50122M03H25' and plant_cd='US02' -- test case 1: no match between tables, just append vals
-# MAGIC -- where item_nbr = '4358293' and plant_cd='SG05' -- test case 2: all match between tables, just replace vals
-# MAGIC 
-# MAGIC ;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC 
-# MAGIC /**************************************************************************
-# MAGIC Artefact Name :- F_INVNTRY_BAL_DLY_HIST (SNAPSHOT)
-# MAGIC Description :-  This table will hold the information of the on-hand_qty for E1LSG system
-# MAGIC -------------------------------------------------------------------------------------------------------------------------------
-# MAGIC Change Log
-# MAGIC Version :        Date :                                Description                                     Changed By
-# MAGIC -------------------------------------------------------------------------------------------------------------------------------
-# MAGIC 0.0            18-08-2022	                       First draft of sql file    			                Vijay Kelkar
-# MAGIC 1.1            14-09-2022                          UOM Issue : all the qty divide by 10,000             Vijay Kelkar  
-# MAGIC 1.2            19-10-2022						   Replace dims table with raw table                    Neha Chaturvedi	
-# MAGIC 1.3            08-11-2022						   Replace on_hand_qty logic                            Neha Chaturvedi	
-# MAGIC 1.4            09-11-2022						   Replace avail_qty logic                            Neha Chaturvedi
-# MAGIC 1.5            27-01-2022                          Remove Where Condition	                          Neha Chaturvedi
-# MAGIC 1.6            01-02-2022                          Replaced avail_qty logic                            Raul Martinez
+# MAGIC 1.6            09-02-2022                          Replaced avail_qty logic                            Raul Martinez
 # MAGIC                                                    Replaced on_hand_qty logic                          Raul Martinez
 # MAGIC                                                    Replaced qa_inspn_qty logic                         Raul Martinez
 # MAGIC                                                    Replaced blocked_qty logic                          Raul Martinez
@@ -834,7 +474,7 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC 0.0            04/13/2022                      First draft of sql file                       Abhishek Ranjan
 # MAGIC 1.0            06/16/2022                      Repleced source table itemconsumption_sales         Bhaskar Reddy
 # MAGIC                                                  with item_qty_on_hand    
-# MAGIC 1.1            02/01/2022                        Replaced blocked_qty logic                          Raul Martinez
+# MAGIC 1.1            02/09/2022                        Replaced blocked_qty logic                          Raul Martinez
 # MAGIC                                                  Replaced qa_inspn_qty logic                         Raul Martinez
 # MAGIC                                                  Replaced avail_qty logic                            Raul Martinez
 # MAGIC                                                  Added consignment_qty logic                         Raul Martinez
@@ -1491,35 +1131,62 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC   'saplsg' || '|' || mard.matnr as prod_key,
 # MAGIC   'saplsg' || '|' || mard.werks as plant_key
 # MAGIC from (select * from mard  where (mard.labst+mard.umlme+mard.insme+mard.einme+mard.speme+mard.klabs)!=0) mard
-# MAGIC left outer join (select * from mchb where  (mchb.cinsm + mchb.ceinm + mchb.cspem + mchb.cumlm + mchb.clabs) != 0) mchb on trim(mard.matnr)= trim(mchb.matnr) and mard.werks=mchb.werks and mard.lgort=mchb.lgort
-# MAGIC left outer join mbew on trim(mard.matnr) = trim(mbew.matnr)
-# MAGIC left outer join  t001w t001w on mard.werks = t001w.werks
+# MAGIC left outer join (select * from mchb where  (mchb.cinsm + mchb.ceinm + mchb.cspem + mchb.cumlm + mchb.clabs) != 0) mchb 
+# MAGIC   on trim(mard.matnr)= trim(mchb.matnr) 
+# MAGIC     and mard.werks=mchb.werks 
+# MAGIC     and mard.lgort=mchb.lgort
+# MAGIC left outer join mbew 
+# MAGIC   on trim(mard.matnr) = trim(mbew.matnr)
+# MAGIC left outer join  t001w t001w 
+# MAGIC   on mard.werks = t001w.werks
 # MAGIC 
-# MAGIC left outer join marc on  trim(mard.matnr)= trim(marc.matnr) and trim(marc.werks) = trim(mard.werks) and trim(mard.mandt) = trim(marc.mandt)
+# MAGIC left outer join marc 
+# MAGIC   on  trim(mard.matnr)= trim(marc.matnr) 
+# MAGIC     and trim(marc.werks) = trim(mard.werks) 
+# MAGIC     and trim(mard.mandt) = trim(marc.mandt)
 # MAGIC 
 # MAGIC -- left outer join s032 on trim(mard.matnr)= trim(s032.matnr) and mard.werks=s032.werks and mard.lgort=s032.lgort
-# MAGIC left outer join t001l on mard.werks= t001l.werks and mard.lgort= t001l.lgort 
+# MAGIC left outer join t001l 
+# MAGIC   on mard.werks= t001l.werks 
+# MAGIC     and mard.lgort= t001l.lgort 
 # MAGIC 
-# MAGIC left outer join t001 on  (case when trim(t001w.vkorg) = '' then t001w.ekorg  else t001w.vkorg end) = t001.bukrs
-# MAGIC left outer join mara on trim(mara.matnr)= trim(mard.matnr) and mara.mtart<> 'NVAL'
+# MAGIC left outer join t001 
+# MAGIC   on (case when trim(t001w.vkorg) = '' then t001w.ekorg  else t001w.vkorg end) = t001.bukrs
+# MAGIC left outer join mara 
+# MAGIC   on trim(mara.matnr)= trim(mard.matnr) 
+# MAGIC     and mara.mtart<> 'NVAL'
 # MAGIC --left outer join zproftcntr_att on d_prod_plnt.profit_center_cd = zproftcntr_att.zrprctr and zproftcntr_att.mandt='100'
 # MAGIC 
-# MAGIC left outer join edp_lkup b_unit on marc.prctr = b_unit.lkup_key_01 and LKUP_TYP_NM = 'CAD_PROFIT_CENTER_BU_PL_LKUP'
+# MAGIC left outer join edp_lkup b_unit 
+# MAGIC   on marc.prctr = b_unit.lkup_key_01 
+# MAGIC     and LKUP_TYP_NM = 'CAD_PROFIT_CENTER_BU_PL_LKUP'
 # MAGIC 
-# MAGIC left outer join (select MSEHL,msehi  from t006a  where t006a.mandt = '100' and t006a.SPRAS = 'E')t006a_meins on mara.meins= t006a_meins.msehi
+# MAGIC left outer join (select MSEHL,msehi  from t006a  where t006a.mandt = '100' and t006a.SPRAS = 'E')t006a_meins 
+# MAGIC   on mara.meins= t006a_meins.msehi
 # MAGIC 
-# MAGIC left outer join  edp_lkup hfm on hfm.lkup_key_01 = cast(t001.bukrs as string) and  hfm.LKUP_TYP_NM ='CO_TO_HFM' and hfm.lkup_key_02 = 'SAPLSG'
+# MAGIC left outer join  edp_lkup hfm 
+# MAGIC   on hfm.lkup_key_01 = cast(t001.bukrs as string) 
+# MAGIC     and  hfm.LKUP_TYP_NM ='CO_TO_HFM' 
+# MAGIC     and hfm.lkup_key_02 = 'SAPLSG'
 # MAGIC 
 # MAGIC 
-# MAGIC left outer join d_date d_dt on date_format(if(date_format(current_timestamp,'HH')>='0' and date_format(current_timestamp,'HH')<='12',date_sub(current_date,1),current_date),'yMMdd') = cast (d_dt.dt_key as string)
+# MAGIC left outer join d_date d_dt 
+# MAGIC   on date_format(if(date_format(current_timestamp,'HH')>='0' 
+# MAGIC     and date_format(current_timestamp,'HH')<='12',date_sub(current_date,1),current_date),'yMMdd') = cast (d_dt.dt_key as string)
 # MAGIC 
-# MAGIC left outer join (select curr_mnth.PMAR_RT as CO_PMAR_RT, curr_mnth.CURNCY_MTH_RT_KEY,curr_mnth.YR_MTH_NBR,curr_mnth.FROM_CURNCY_CD
-# MAGIC from d_curncy_mth_rt curr_mnth where TO_CURNCY_CD =  'USD') co_curr_mth on co_curr_mth.YR_MTH_NBR = d_dt.fscl_yr_prd_nbr and co_curr_mth.FROM_CURNCY_CD = t001.waers
+# MAGIC left outer join (
+# MAGIC     select curr_mnth.PMAR_RT as CO_PMAR_RT, curr_mnth.CURNCY_MTH_RT_KEY,curr_mnth.YR_MTH_NBR,curr_mnth.FROM_CURNCY_CD
+# MAGIC     from d_curncy_mth_rt curr_mnth 
+# MAGIC     where TO_CURNCY_CD =  'USD'
+# MAGIC   ) co_curr_mth 
+# MAGIC   on co_curr_mth.YR_MTH_NBR = d_dt.fscl_yr_prd_nbr and co_curr_mth.FROM_CURNCY_CD = t001.waers
 # MAGIC 
-# MAGIC left outer join  tvko on   tvko.mandt = mard.mandt and tvko.vkorg = mard.werks
+# MAGIC left outer join  tvko 
+# MAGIC   on tvko.mandt = mard.mandt 
+# MAGIC     and tvko.vkorg = mard.werks
 # MAGIC 
-# MAGIC left outer join (select * from mbew where cast(((cast (mbew.lfgja as decimal(11,0)) * 100) + (cast (mbew.lfmon as decimal(11,0)))) as decimal(11,0) ) <=(select fscl_yr_prd_nbr from d_date where cast(dt_key as string)=(select if(date_format(current_timestamp,'H')>='0' and date_format(current_timestamp,'H')<='12',cast(date_format(date_sub(current_date,1),'yMMdd') as string) ,cast(date_format(current_date,'yMMdd') as string)))) and cast( 999912 as decimal(12,0))>=(select fscl_yr_prd_nbr from d_date where cast(dt_key as string)=(select if(date_format(current_timestamp,'H')>='0' and date_format(current_timestamp,'H')<='12',cast(date_format(date_sub(current_date,1),'yMMdd') as string),cast(date_format(current_date,'yMMdd') as string) )))) mbew_a on 
-# MAGIC trim(mbew_a.bwkey) = trim(mard.werks) and trim(mbew_a.matnr) = trim(mard.matnr) 
+# MAGIC left outer join (select * from mbew where cast(((cast (mbew.lfgja as decimal(11,0)) * 100) + (cast (mbew.lfmon as decimal(11,0)))) as decimal(11,0) ) <=(select fscl_yr_prd_nbr from d_date where cast(dt_key as string)=(select if(date_format(current_timestamp,'H')>='0' and date_format(current_timestamp,'H')<='12',cast(date_format(date_sub(current_date,1),'yMMdd') as string) ,cast(date_format(current_date,'yMMdd') as string)))) and cast( 999912 as decimal(12,0))>=(select fscl_yr_prd_nbr from d_date where cast(dt_key as string)=(select if(date_format(current_timestamp,'H')>='0' and date_format(current_timestamp,'H')<='12',cast(date_format(date_sub(current_date,1),'yMMdd') as string),cast(date_format(current_date,'yMMdd') as string) )))) mbew_a 
+# MAGIC   on trim(mbew_a.bwkey) = trim(mard.werks) and trim(mbew_a.matnr) = trim(mard.matnr) 
 # MAGIC )
 # MAGIC ;
 
