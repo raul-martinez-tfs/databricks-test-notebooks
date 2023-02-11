@@ -163,7 +163,13 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC     match_UOM.lot_nbr as lot_nbr,
 # MAGIC     match_UOM.invntry_loc_name as invntry_loc_name,
 # MAGIC     sum((case when match_UOM.base_uom <> match_UOM.txn_uom then unmatch_uom.final_qty else match_UOM.original_qty end )) as consignment_qty,
-# MAGIC     match_UOM.base_uom
+# MAGIC     match_UOM.base_uom,
+# MAGIC     match_UOM.IMSRP3,
+# MAGIC     match_UOM.IMLOTS,
+# MAGIC     match_UOM.IMSRP1,
+# MAGIC     match_UOM.IMSRP2,
+# MAGIC     match_UOM.PRLITM,
+# MAGIC     match_UOM.PRMCU
 # MAGIC   from (
 # MAGIC     select 
 # MAGIC       cast(trim(f43121.PRLITM) as string) as item_nbr,
@@ -177,7 +183,13 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC       cast(f43121.prlocn  as string) as invntry_loc_name,
 # MAGIC       cast(f43121.PRUOM as string) as txn_uom,
 # MAGIC       cast(f4101.IMUOM1 as string) as base_uom,
-# MAGIC       f43092.pxqtyo/10000 as original_qty 
+# MAGIC       f43092.pxqtyo/10000 as original_qty,
+# MAGIC       cast(f4101.IMSRP3 as string) as IMSRP3,
+# MAGIC       cast(f4101.IMLOTS as string) as IMLOTS,
+# MAGIC       cast(f4101.IMSRP1 as string) as IMSRP1,
+# MAGIC       cast(f4101.IMSRP2 as string) as IMSRP2,
+# MAGIC       cast(f43121.PRLITM as string) as PRLITM,
+# MAGIC       cast(f43121.PRLITM as string) as PRMCU
 # MAGIC     from f43092   
 # MAGIC     left outer join f43121 
 # MAGIC       on trim(cast(cast(f43092.pxdoco as integer) as string))= trim(cast(cast(f43121.PRDOCO as integer) as string))
@@ -342,7 +354,7 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC     --WHERE trim(f41003.ucrum) IS NULL
 # MAGIC   ) unmatch_uom
 # MAGIC     on match_UOM.item_nbr = unmatch_uom.item_nbr
-# MAGIC   group by match_UOM.item_nbr,match_UOM.plant_cd,match_UOM.lot_nbr,match_UOM.invntry_loc_name,match_UOM.base_uom
+# MAGIC   group by match_UOM.item_nbr,match_UOM.plant_cd,match_UOM.lot_nbr,match_UOM.invntry_loc_name,match_UOM.base_uom,match_UOM.IMSRP3,match_UOM.IMLOTS,match_UOM.IMSRP1,match_UOM.IMSRP2,match_UOM.PRLITM,match_UOM.PRMCU
 # MAGIC ),
 # MAGIC 
 # MAGIC consignment_qty_records as (
@@ -352,24 +364,28 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC     cast(d_dt.fscl_yr_prd_nbr as decimal(38,0)) as capture_yr_mth_nbr,
 # MAGIC     cast(f0010.ccname as string) as co_name,
 # MAGIC     case when f0010.CCCRCD='RMB' then 'CNY' else f0010.CCCRCD end as co_curncy_cd,
-# MAGIC     cast(date_format(TO_DATE(cast(f41021.LILRCJ_dt as string),'yyyyMMdd'),'yMMdd') as string) as recpt_dt,
-# MAGIC     cast((CASE WHEN trim(f41021.LILOTS) in ('#','C','D','G','M','P','W','','null') THEN (f41021.LILOTS/10000) ELSE 0 end) as double) as avail_qty,
-# MAGIC     cast((CASE WHEN trim(f41021.LILOTS) in ('Q') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as qa_inspn_qty,
-# MAGIC     cast((CASE WHEN trim(f41021.LILOTS) in ('E','F','H','R','S','V','X') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as blocked_qty,
+# MAGIC --     cast(date_format(TO_DATE(cast(f41021.LILRCJ_dt as string),'yyyyMMdd'),'yMMdd') as string) as recpt_dt,
+# MAGIC     'NA' as recpt_dt,
+# MAGIC     cast((CASE WHEN trim(cqa.IMLOTS) in ('#','C','D','G','M','P','W','','null') THEN (cqa.IMLOTS/10000) ELSE 0 end) as double) as avail_qty,
+# MAGIC --     cast((CASE WHEN trim(cqa.IMLOTS) in ('Q') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as qa_inspn_qty,
+# MAGIC     'NA' as qa_inspn_qty,
+# MAGIC --     cast((CASE WHEN trim(cqa.IMLOTS) in ('E','F','H','R','S','V','X') THEN (f41021.LIPQOH/10000) ELSE 0 end) as double) as blocked_qty,
+# MAGIC     'NA' as blocked_qty,
 # MAGIC     coalesce(hfm.LKUP_VAL_01,'NA') as hfm_entity,
 # MAGIC     case when trim(f0005.DRDL01)='RMPEnvironmental' then 'FSI'
 # MAGIC       when trim(f0005.DRDL01) in ('BulkEquipmentSvcs','MATERIALS & MINERALS','BulkEquipment','PackagingWI') then 'PPA' 
 # MAGIC       else trim(f0005.DRDL01) 
 # MAGIC       end as business_unit,
 # MAGIC     cast(trim(F0005_div.DRDL01) as string) as div_cd,
-# MAGIC     cast(trim(f41021.LILOTS) as string) as lot_stat_cd,
+# MAGIC     cast(trim(cqa.IMLOTS) as string) as lot_stat_cd,
 # MAGIC     cast(F0005_LOT.DRDL01 as string) as lot_stat_nm,
-# MAGIC     cast(f41021.LIPBIN as string) as prim_loc_flg,
+# MAGIC --     cast(f41021.LIPBIN as string) as prim_loc_flg,
+# MAGIC     'NA' as prim_loc_flg,
 # MAGIC     cast(F0005_UOM.DRDL01 as string) as stk_uom_cd,
-# MAGIC     cast(f4102.IBSRP3 as string) as prod_family,
+# MAGIC     cast(cqa.IMSRP3 as string) as prod_family,
 # MAGIC     cast(F0005_PROD.DRDL01 as string) as prod_fam_typ,
-# MAGIC     'e1lsg' || '|' || trim(f4102.iblitm) as prod_key,
-# MAGIC     'e1lsg' || '|' || trim(F41021.LIMCU) as plant_key
+# MAGIC     'e1lsg' || '|' || trim(cqa.PRLITM) as prod_key,
+# MAGIC     'e1lsg' || '|' || trim(cqa.PRMCU) as plant_key
 # MAGIC 
 # MAGIC   from consignment_qty_agg cqa
 # MAGIC   left outer join d_date d_dt 
@@ -379,11 +395,11 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC     on trim(f0006.mcmcu) = cqa.plant_cd
 # MAGIC   left outer join f0010 
 # MAGIC     on f0010.ccco = f0006.mcco
-# MAGIC   left outer join f41021 
-# MAGIC     on trim(f0006.mcmcu) = trim(f41021.limcu)
-# MAGIC   left outer join f4102_adt f4102 
-# MAGIC     on trim(cast(cast(f4102.ibitm as integer) as string))= trim(cast(cast(F41021.LIITM as integer) as string)) 
-# MAGIC       and trim(F41021.LIMCU) = trim(f4102.ibmcu)
+# MAGIC --   left outer join f41021 
+# MAGIC --     on trim(f0006.mcmcu) = trim(f41021.limcu)
+# MAGIC --   left outer join f4102_adt f4102 
+# MAGIC --     on trim(cast(cast(f4102.ibitm as integer) as string))= trim(cast(cast(F41021.LIITM as integer) as string)) 
+# MAGIC --       and trim(F41021.LIMCU) = trim(f4102.ibmcu)
 # MAGIC   left outer join edp_lkup hfm 
 # MAGIC     on hfm.lkup_key_01 = f0006.MCCO 
 # MAGIC       and hfm.LKUP_TYP_NM ='CO_TO_HFM' 
@@ -391,15 +407,15 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC   left outer join f0005 f0005 
 # MAGIC     on trim(f0005.DRSY)= '41' 
 # MAGIC       and trim(f0005.DRRT)='S2' 
-# MAGIC       and trim(f0005.DRKY)=trim(f4102.IBSRP2)
+# MAGIC       and trim(f0005.DRKY)=trim(cqa.IMSRP2)
 # MAGIC   left outer join f0005 F0005_div 
 # MAGIC     on trim(F0005_div.DRSY)= '41' 
 # MAGIC       and trim(F0005_div.DRRT)='S1' 
-# MAGIC       and trim(F0005_div.DRKY)=trim(f4102.IBSRP1)
+# MAGIC       and trim(F0005_div.DRKY)=trim(cqa.IMSRP1)
 # MAGIC   left outer join f0005 F0005_LOT 
 # MAGIC     on trim(F0005_LOT.DRSY)= '41' 
 # MAGIC       and trim(F0005_LOT.DRRT)='L' 
-# MAGIC       and trim(F0005_LOT.DRKY)=trim(f41021.LILOTS)
+# MAGIC       and trim(F0005_LOT.DRKY)=trim(cqa.IMLOTS)
 # MAGIC   left outer join f0005 F0005_UOM 
 # MAGIC     on trim(F0005_UOM.DRSY)= '00' 
 # MAGIC       and trim(F0005_UOM.DRRT)='UM' 
@@ -407,7 +423,7 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC   left outer join f0005 F0005_PROD 
 # MAGIC     on trim(F0005_PROD.DRSY)= '41' 
 # MAGIC       and trim(F0005_PROD.DRRT)='S3'  
-# MAGIC       and trim(F0005_PROD.DRKY)=trim(f4102.IBSRP3)
+# MAGIC       and trim(F0005_PROD.DRKY)=trim(cqa.IMSRP3)
 # MAGIC ),
 # MAGIC 
 # MAGIC f_invntry_bal_dly_hist as (
@@ -432,9 +448,11 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC       'NA' as invntry_loc_cd,
 # MAGIC       'NA' as strg_bin_cd,
 # MAGIC --       cast(f0006.mcco as string) as co_cd,
-# MAGIC       case when cqr.co_cd is null then f0006.mcco else f0006.mcco end as co_cd,
-# MAGIC       cast(f0010.CCNAME as string) as co_name,
-# MAGIC       case when f0010.CCCRCD='RMB' then 'CNY' else f0010.CCCRCD end as co_curncy_cd,
+# MAGIC       case when cqr.co_cd is null then f0006.mcco else cqr.co_cd end as co_cd,
+# MAGIC --       cast(f0010.CCNAME as string) as co_name,
+# MAGIC       case when cqr.co_name is null then cast(f0010.CCNAME as string) else cqr.co_name end as co_name,
+# MAGIC --       case when f0010.CCCRCD='RMB' then 'CNY' else f0010.CCCRCD end as co_curncy_cd,
+# MAGIC       case when cqr.co_curncy_cd is null then (case when f0010.CCCRCD='RMB' then 'CNY' else f0010.CCCRCD end) else cqr.co_curncy_cd end as co_curncy_cd,
 # MAGIC       'Finished Goods' as invntry_stk_type_cd,
 # MAGIC       'NA'  as valuation_cd,
 # MAGIC --       cast(date_format(TO_DATE(cast(f41021.LILRCJ_dt as string),'yyyyMMdd'),'yMMdd') as string) as  recpt_dt,
@@ -558,10 +576,10 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC --   where (trim(f4102.iblitm) = '4358293' or cqr.item_nbr = '4358293') and (trim(f4102.ibmcu) = 'SG05' or cqr.plant_cd='SG05') -- test case 2: all match between tables, just replace vals
 # MAGIC )
 # MAGIC 
-# MAGIC select count(*)
+# MAGIC select *
 # MAGIC from f_invntry_bal_dly_hist
-# MAGIC  where item_nbr = '50122M03H25' and plant_cd='US02' -- test case 1: no match between tables, just append vals
-# MAGIC -- where item_nbr = '4358293' and plant_cd='SG05' -- test case 2: all match between tables, just replace vals
+# MAGIC -- where item_nbr = '50122M03H25' and plant_cd='US02' -- test case 1: no match between tables, just append vals
+# MAGIC where item_nbr = '4358293' and plant_cd='SG05' -- test case 2: all match between tables, just replace vals
 # MAGIC 
 # MAGIC ;
 
@@ -576,8 +594,8 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC Change Log
 # MAGIC Version :        Date :                                Description                                     Changed By
 # MAGIC -------------------------------------------------------------------------------------------------------------------------------
-# MAGIC 0.0            04/13/2022                      First draft of sql file                       Abhishek Ranjan
-# MAGIC 1.0            06/16/2022                      Repleced source table itemconsumption_sales         Bhaskar Reddy
+# MAGIC 0.0            04/13/2022                      First draft of sql file                               Abhishek Ranjan
+# MAGIC 1.0            06/16/2022                      Repleced source table itemconsumption_sales           Bhaskar Reddy
 # MAGIC                                                  with item_qty_on_hand    
 # MAGIC 1.1            02/09/2022                        Replaced blocked_qty logic                          Raul Martinez
 # MAGIC                                                  Replaced qa_inspn_qty logic                         Raul Martinez
@@ -652,7 +670,6 @@ tvko.createOrReplaceTempView("tvko")
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC 
 # MAGIC 
 # MAGIC -- Databricks notebook source
 # MAGIC 
