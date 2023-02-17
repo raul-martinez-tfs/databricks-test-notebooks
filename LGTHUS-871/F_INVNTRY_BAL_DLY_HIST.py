@@ -154,6 +154,7 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC                                                    Replaced stk_uom_cd logic                                        Raul Martinez
 # MAGIC                                                    Replaced prod_family logic                                       Raul Martinez
 # MAGIC                                                    Replaced prod_fam_typ logic                                      Raul Martinez
+# MAGIC                                                    Split code into 3 CTEs                                           Raul Martinez
 # MAGIC **************************************************************************/
 # MAGIC 
 # MAGIC with consignment_qty_agg as (
@@ -395,6 +396,17 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC     on trim(f0006.mcmcu) = cqa.plant_cd
 # MAGIC   left outer join f0010 
 # MAGIC     on f0010.ccco = f0006.mcco
+# MAGIC   left outer join (
+# MAGIC           select 
+# MAGIC               curr_mnth.PMAR_RT as CO_PMAR_RT, 
+# MAGIC               curr_mnth.CURNCY_MTH_RT_KEY,
+# MAGIC               curr_mnth.YR_MTH_NBR,
+# MAGIC               curr_mnth.FROM_CURNCY_CD 
+# MAGIC           from d_curncy_mth_rt curr_mnth 
+# MAGIC           where TO_CURNCY_CD =  'USD'
+# MAGIC           ) co_curr_mth  
+# MAGIC       on co_curr_mth.YR_MTH_NBR = d_dt.fscl_yr_prd_nbr 
+# MAGIC         and co_curr_mth.FROM_CURNCY_CD = COALESCE(f0010.CCCRCD,'USD')
 # MAGIC --   left outer join f41021 
 # MAGIC --     on trim(f0006.mcmcu) = trim(f41021.limcu)
 # MAGIC --   left outer join f4102_adt f4102 
@@ -579,7 +591,7 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC select *
 # MAGIC from f_invntry_bal_dly_hist
 # MAGIC -- where item_nbr = '50122M03H25' and plant_cd='US02' -- test case 1: no match between tables, just append vals
-# MAGIC where item_nbr = '4358293' and plant_cd='SG05' -- test case 2: all match between tables, just replace vals
+# MAGIC -- where item_nbr = '4358293' and plant_cd='SG05' -- test case 2: all match between tables, just replace vals
 # MAGIC 
 # MAGIC ;
 
@@ -687,8 +699,6 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC --               09-feb-2023                         added col plant_key                                 Raul Martinez
 # MAGIC **************************************************************************/
 # MAGIC 
-# MAGIC 
-# MAGIC 
 # MAGIC (select distinct
 # MAGIC   'saplsg' as src_sys_cd,
 # MAGIC   cast(trim(mard.matnr) as string) as item_nbr,
@@ -748,6 +758,7 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC   cast(mard.klabs as decimal(38,6)) as Consignment_qty,
 # MAGIC   'saplsg' || '|' || trim(mard.matnr) as prod_key,
 # MAGIC   'saplsg' || '|' || trim(mard.werks) as plant_key
+# MAGIC   
 # MAGIC from (select * from mard  where (mard.labst+mard.umlme+mard.insme+mard.einme+mard.speme+mard.klabs)!=0) mard
 # MAGIC left outer join (select * from mchb where  (mchb.cinsm + mchb.ceinm + mchb.cspem + mchb.cumlm + mchb.clabs) != 0) mchb 
 # MAGIC   on trim(mard.matnr)= trim(mchb.matnr) 
