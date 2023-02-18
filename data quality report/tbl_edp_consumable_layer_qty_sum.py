@@ -102,17 +102,17 @@ print(where_clause_email_generation)
 df_control_table = (spark.sql(
   f''' 
     select 
+      DISTINCT src_sys_cd,
       table_name,
-      src_sys_cd,
       project,
       target_bucket,
       athena_db_name,
       write_format,
-      write_mode,
+      -- write_mode,
       status_flag,
       partition_cols,
       load_group,
-      load_type,
+      -- load_type,
       is_active,
       extract_type 
     from (
@@ -123,11 +123,11 @@ df_control_table = (spark.sql(
         target_bucket,
         athena_db_name,
         write_format,
-        write_mode,
+        -- write_mode,
         status_flag,
         partition_cols,
         load_group,
-        load_type,
+        -- load_type,
         is_active,
         extract_type from delta.`s3://tfsdl-edp-common-dims-prod/processed/control_table`
     ) 
@@ -150,7 +150,11 @@ print("control_table view got created ")
 # COMMAND ----------
 
 control_table_list = [row.asDict() for row in df_control_table.collect()]
-print(control_table_list)
+
+# if env=='uat':
+#   control_table_list = [{k:v.replace('-prod', '-uat') if k=='target_bucket' else v for k,v in i.items()} for i in control_table_list]
+  
+print(control_table_list[0])
 
 # COMMAND ----------
 
@@ -211,9 +215,41 @@ def read_table_and_create_view(bucket,single_path,view_name,format):
 def generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd):
    
   if Is_src_sys_cd == True:
-    return  f"SELECT '{view_name}' as table_name,'{project_cntrl_tbl}' as project_cntrl_tbl,src_sys_cd ,'{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,count(*) as count_of_rows ,date_format(current_timestamp,'yMMdd')  as date,cast(date_format(current_timestamp,'y') as string) year ,cast(date_format(current_timestamp,'MM') as string) month , cast(date_format(current_timestamp,'dd') as string) day,'{table_name_cntrl_tbl}' as table_name_cntrl_tbl from {view_name} where src_sys_cd like '{search_like_src_sys_cd}' group by src_sys_cd"
+    return  f"""
+      select 
+        '{view_name}' as table_name,
+        'po_qty' as column_name,
+        '{project_cntrl_tbl}' as project_cntrl_tbl,
+        src_sys_cd,
+        '{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,
+        sum(po_qty) as qty_sum,
+        date_format(current_timestamp,'yMMdd')  as date,
+        cast(date_format(current_timestamp,'y') as string) year ,
+        cast(date_format(current_timestamp,'MM') as string) month, 
+        cast(date_format(current_timestamp,'dd') as string) day,
+        '{table_name_cntrl_tbl}' as table_name_cntrl_tbl 
+      from {view_name}
+      where src_sys_cd like '{search_like_src_sys_cd}'
+      group by src_sys_cd
+      ;
+    """
   else:
-    return  f"SELECT '{view_name}' as table_name,'{project_cntrl_tbl}' as project_cntrl_tbl,'NA' as src_sys_cd ,'{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,count(*) as count_of_rows ,date_format(current_timestamp,'yMMdd')  as date,cast(date_format(current_timestamp,'y') as string) year ,cast(date_format(current_timestamp,'MM') as string) month , cast(date_format(current_timestamp,'dd') as string) day,'{table_name_cntrl_tbl}' as table_name_cntrl_tbl from {view_name}"
+    return  f"""
+      select 
+        '{view_name}' as table_name,
+        'po_qty' as column_name,
+        '{project_cntrl_tbl}' as project_cntrl_tbl,
+        'NA' as src_sys_cd ,
+        '{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,
+        sum(po_qty) as qty_sum,
+        date_format(current_timestamp,'yMMdd')  as date,
+        cast(date_format(current_timestamp,'y') as string) year ,
+        cast(date_format(current_timestamp,'MM') as string) month, 
+        cast(date_format(current_timestamp,'dd') as string) day,
+        '{table_name_cntrl_tbl}' as table_name_cntrl_tbl 
+      from {view_name}
+      ;
+    """
   
 def filter_dims_and_facts_from_bucket(list_of_tables):
   new_list = []
@@ -247,10 +283,11 @@ def read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_nam
 
 TableFields = [
   StructField("table_name",StringType(),False),
+  StructField("column_name",StringType(),False),
   StructField("project_cntrl_tbl",StringType(),False),# from cntrl_tbl
   StructField("src_sys_cd",StringType(),True),
   StructField("src_sys_cd_cntrl_tbl",StringType(),False),
-  StructField("count_of_rows",LongType(),False),
+  StructField("qty_sum",LongType(),False),
   StructField("date",StringType(),False),#change
   StructField("year",StringType(),False),
   StructField("month",StringType(),False),
@@ -270,7 +307,7 @@ day = latest_date[6:8]
 s3_client = boto3.client('s3')
 empty_dataframe = spark.sparkContext.emptyRDD()
 df_incremental_data = spark.createDataFrame(empty_dataframe,TableSchema)
-
+output_table = 'tbl_edp_consumable_layer_qty_sum'
 
 # COMMAND ----------
 
@@ -305,68 +342,116 @@ for location in control_table_list:
     print(e)
     continue
   df_incremental_data = df_incremental_data.union(dataframe)
+#   break
 
+
+# COMMAND ----------
+
+df_incremental_data.show()
 
 # COMMAND ----------
 
 # DBTITLE 1,Incremental Data for Current Date
 df_incremental_data.createOrReplaceTempView("tbl_incremental_data")
 
-df_incremental_data_for_today=spark.sql("select distinct table_name,src_sys_cd,project_cntrl_tbl as project,count_of_rows,date,table_name_cntrl_tbl,src_sys_cd_cntrl_tbl,year,month,day from tbl_incremental_data")
+df_incremental_data_for_today=spark.sql(
+  """
+    select 
+      distinct table_name,
+      column_name,
+      src_sys_cd,
+      project_cntrl_tbl as project,
+      qty_sum,
+      date,
+      table_name_cntrl_tbl,
+      src_sys_cd_cntrl_tbl,
+      year,
+      month,
+      day 
+      from tbl_incremental_data
+  """
+)
 df_incremental_data_for_today.createOrReplaceTempView("tbl_incremental_data_for_today")
-
-
-
-# COMMAND ----------
-
-# DBTITLE 1,Target Data ( Historical Data )
-load_path = f"s3://tfsdl-edp-common-dims-prod/processed/tbl_edp_consumable_layer_record_cnt"
-df_target_data =  spark.read.format('delta').load(load_path)
-df_target_data.createOrReplaceTempView("tbl_target_data")
 
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC Merge into  tbl_target_data as Destination
+# MAGIC select * from tbl_incremental_data_for_today limit 10;
+
+# COMMAND ----------
+
+# # WARNING - ONLY CLEAR TABLE FOR TESTING
+# # dbutils.fs.ls('s3://tfsdl-edp-common-dims-uat/processed/tbl_edp_consumable_layer_qty_sum')
+# dbutils.fs.rm('s3://tfsdl-edp-common-dims-uat/processed/tbl_edp_consumable_layer_qty_sum', True)
+
+# COMMAND ----------
+
+# # WARNING - ONLY DURING SET-UP - create target delta table
+# df=spark.sql('select * from tbl_incremental_data_for_today limit 1;')
+# p_list = ['year', 'month', 'day']
+# df.write.partitionBy(p_list).format('delta').mode('append').save(f's3://tfsdl-edp-common-dims-uat/processed/{output_table}')
+
+# COMMAND ----------
+
+# DBTITLE 1,Target Data ( Historical Data )
+load_path = f"s3://tfsdl-edp-common-dims-{env}/processed/{output_table}"
+df_target_data =  spark.read.format('delta').load(load_path)
+df_target_data.createOrReplaceTempView("tbl_target_data")
+
+# COMMAND ----------
+
+# MAGIC %sql 
+# MAGIC select * from tbl_target_data limit 10;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC select * from tbl_incremental_data_for_today limit 10;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC Merge into tbl_target_data as Destination
 # MAGIC using tbl_incremental_data_for_today as Source
 # MAGIC ON upper(ltrim(rtrim(Destination.table_name)))=upper(ltrim(rtrim(Source.table_name)))
-# MAGIC AND upper(ltrim(rtrim(Destination.project)))=upper(ltrim(rtrim(Source.project)))
-# MAGIC AND upper(ltrim(rtrim(Destination.src_sys_cd)))=upper(ltrim(rtrim(Source.src_sys_cd)))
-# MAGIC and Destination.date   =Source.date
-# MAGIC and Destination.year   =Source.year
-# MAGIC and Destination.month   =Source.month
-# MAGIC and Destination.day   =Source.day
+# MAGIC   AND upper(ltrim(rtrim(Destination.column_name)))=upper(ltrim(rtrim(Source.column_name)))
+# MAGIC   AND upper(ltrim(rtrim(Destination.project)))=upper(ltrim(rtrim(Source.project)))
+# MAGIC   AND upper(ltrim(rtrim(Destination.src_sys_cd)))=upper(ltrim(rtrim(Source.src_sys_cd)))
+# MAGIC   and Destination.date = Source.date
+# MAGIC   and Destination.year = Source.year
+# MAGIC   and Destination.month = Source.month
+# MAGIC   and Destination.day = Source.day
 # MAGIC 
 # MAGIC WHEN MATCHED THEN
-# MAGIC   UPDATE SET Destination.count_of_rows=Source.count_of_rows
+# MAGIC   UPDATE SET Destination.qty_sum=Source.qty_sum
 # MAGIC 
 # MAGIC WHEN NOT MATCHED
 # MAGIC   THEN INSERT (
-# MAGIC     table_name
-# MAGIC ,src_sys_cd
-# MAGIC ,project
-# MAGIC ,count_of_rows
-# MAGIC ,date
-# MAGIC ,table_name_cntrl_tbl
-# MAGIC ,src_sys_cd_cntrl_tbl
-# MAGIC ,year
-# MAGIC ,month
-# MAGIC ,day
-# MAGIC 
+# MAGIC     table_name,
+# MAGIC     column_name,
+# MAGIC     src_sys_cd,
+# MAGIC     project,
+# MAGIC     qty_sum,
+# MAGIC     date,
+# MAGIC     table_name_cntrl_tbl,
+# MAGIC     src_sys_cd_cntrl_tbl,
+# MAGIC     year,
+# MAGIC     month,
+# MAGIC     day
 # MAGIC   )
 # MAGIC   VALUES (
-# MAGIC  Source.table_name
-# MAGIC  ,Source.src_sys_cd
-# MAGIC ,Source.project
-# MAGIC ,Source.count_of_rows
-# MAGIC ,Source.date
-# MAGIC ,Source.table_name_cntrl_tbl
-# MAGIC ,Source.src_sys_cd_cntrl_tbl
-# MAGIC ,Source.year
-# MAGIC ,Source.month
-# MAGIC ,Source.day
-# MAGIC 
+# MAGIC     Source.table_name,
+# MAGIC     Source.column_name,
+# MAGIC     Source.src_sys_cd,
+# MAGIC     Source.project,
+# MAGIC     Source.qty_sum,
+# MAGIC     Source.date,
+# MAGIC     Source.table_name_cntrl_tbl,
+# MAGIC     Source.src_sys_cd_cntrl_tbl,
+# MAGIC     Source.year,
+# MAGIC     Source.month,
+# MAGIC     Source.day
 # MAGIC   )
 
 # COMMAND ----------
@@ -378,7 +463,6 @@ spark.sql(vacuum_query).show(truncate=True)
 # COMMAND ----------
 
 # DBTITLE 1,athena load partition
-
 import time
 if env == 'test':
   athena_db_name = "tfsdl_edp_common_dims"
@@ -406,7 +490,7 @@ client = boto3.client('athena',region_name=AWS_REGION,
      aws_access_key_id=ACCESS_KEY,
      aws_secret_access_key=SECRET_KEY)
 
-sql = f'MSCK REPAIR TABLE {athena_db_name}.tbl_edp_consumable_layer_record_cnt ;'
+sql = f'MSCK REPAIR TABLE {athena_db_name}.{output_table} ;'
   
 time.sleep(10)
   
@@ -420,37 +504,140 @@ print(response)
 # COMMAND ----------
 
 if generate_email == 'Y':
-  load_path = f"s3://tfsdl-edp-common-dims-prod/processed/tbl_edp_consumable_layer_record_cnt"
-  #s3://tfsdl-edp-common-dims-prod/processed/tbl_edp_consumable_layer_record_cnt/
+  load_path = f"s3://tfsdl-edp-common-dims-{env}/processed/{output_table}"
+  #s3://tfsdl-edp-common-dims-prod/processed/{output_table}/
   source_df=spark.read.format("delta").load(load_path)
   source_df.createOrReplaceTempView("source_df")
-  source_df_2 = spark.sql(f'''select * from  source_df {where_clause_email_generation} ''')
+  source_df_2 = spark.sql(
+    f"""
+      select * 
+      from source_df 
+      {where_clause_email_generation}
+    """
+  )
   source_df_2.createOrReplaceTempView("tbl_source_df_2")
   
-  s2_df=spark.sql("""select table_name,src_sys_cd,project,to_date(date, 'yyyyMMdd')as formatted_date,count_of_rows from tbl_source_df_2 """)
+  s2_df=spark.sql(
+    """
+      select 
+        table_name,
+        column_name,
+        src_sys_cd,
+        project,
+        to_date(date, 'yyyyMMdd') as formatted_date,
+        qty_sum
+      from tbl_source_df_2
+    """
+  )
   #s2_df.printSchema()
   s2_df.createOrReplaceTempView("s2_df_tbl")
 
-  filtered_df=spark.sql("select * from s2_df_tbl where formatted_date > current_date()-8")
+  filtered_df=spark.sql(
+    """
+      select * 
+      from 
+      s2_df_tbl 
+      where formatted_date > current_date()-8
+    """
+  )
   filtered_df.createOrReplaceTempView("filtered_df_tbl")
 
-  pivoted_df=filtered_df.groupBy("table_name","src_sys_cd","project").pivot("formatted_date").sum("count_of_rows")
+  pivoted_df=filtered_df.groupBy("table_name","column_name","src_sys_cd","project").pivot("formatted_date").sum("qty_sum")
+  
   #Do Validation Here for the combination of group by column and date there should be only one value 
   pivoted_df.createOrReplaceTempView("pivoted_df_tbl")
 
-  moving_average_7_days_df=spark.sql("select table_name,src_sys_cd,project,formatted_date,count_of_rows,row_number() over(partition by table_name,src_sys_cd,project order by formatted_date )as row_num,Avg(count_of_rows) over(partition by table_name,src_sys_cd order by formatted_date ) as Moving_Average from filtered_df_tbl")
+  moving_average_7_days_df=spark.sql(
+    """
+      select 
+        table_name,
+        column_name,
+        src_sys_cd,
+        project,
+        formatted_date,
+        qty_sum,
+        row_number() over(partition by table_name,column_name,src_sys_cd,project order by formatted_date) as row_num,
+        Avg(qty_sum) over(partition by table_name,column_name,src_sys_cd order by formatted_date ) as Moving_Average 
+      from filtered_df_tbl
+    """
+  )
   moving_average_7_days_df.createOrReplaceTempView("moving_average_7_days_df_tbl")
   
-  formatted_moving_average_7_days_df=spark.sql("select table_name,src_sys_cd,project,formatted_date,count_of_rows,row_num,floor(Moving_Average) as Moving_Average  from moving_average_7_days_df_tbl")
+  formatted_moving_average_7_days_df=spark.sql(
+    """
+      select 
+        table_name,
+        column_name,
+        src_sys_cd,
+        project,
+        formatted_date,
+        qty_sum,
+        row_num,
+        floor(Moving_Average) as Moving_Average  
+      from moving_average_7_days_df_tbl
+    """
+  )
   formatted_moving_average_7_days_df.createOrReplaceTempView("formatted_moving_average_7_days_df_tbl")
 
-  count_average_df=spark.sql("select table_name,src_sys_cd,project,formatted_date,count_of_rows,row_num,last_7_days_Average,(count_of_rows-last_7_days_Average) as Variance_Record_Count_for_Today,concat(format_number((((count_of_rows-last_7_days_Average)/last_7_days_Average)*100),2),' %') as Variance_percentage_for_Today from (select table_name,src_sys_cd,project,formatted_date,count_of_rows,row_num,lag(Moving_Average) over(partition by table_name,src_sys_cd,project order by formatted_date) as last_7_days_Average  from formatted_moving_average_7_days_df_tbl where row_num in (7,8))a where a.row_num=8")
+  count_average_df=spark.sql(
+    """
+      select 
+        table_name,
+        column_name,
+        src_sys_cd,
+        project,
+        formatted_date,
+        qty_sum,
+        row_num,
+        last_7_days_Average,
+        (qty_sum-last_7_days_Average) as Variance_Quantity_Sum_for_Today,
+        concat(format_number((((qty_sum-last_7_days_Average)/last_7_days_Average)*100),2),' %') as Variance_percentage_for_Today 
+      from (
+        select 
+          table_name,
+          column_name,
+          src_sys_cd,
+          project,
+          formatted_date,
+          qty_sum,
+          row_num,
+          lag(Moving_Average) over(partition by table_name,column_name,src_sys_cd,project order by formatted_date) as last_7_days_Average  
+        from formatted_moving_average_7_days_df_tbl 
+        where row_num in (7,8)) a 
+      where a.row_num=8
+    """
+  )
   count_average_df.createOrReplaceTempView("count_average_df_tbl")
 
 # COMMAND ----------
 
+# MAGIC %sql
+# MAGIC select * from pivoted_df_tbl limit 10;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC select * from formatted_moving_average_7_days_df_tbl limit 10;
+
+# COMMAND ----------
+
 if generate_email == 'Y':
-  spark_df_final_dataset=spark.sql("select a.*,b.last_7_days_Average,b.Variance_Record_Count_for_Today,b.Variance_percentage_for_Today from pivoted_df_tbl a inner join count_average_df_tbl b ON a.table_name=b.table_name and a.src_sys_cd=b.src_sys_cd order by Variance_Record_Count_for_Today desc")
+  spark_df_final_dataset=spark.sql(
+    """
+      select 
+        a.*,
+        b.last_7_days_Average,
+        b.Variance_Quantity_Sum_for_Today,
+        b.Variance_percentage_for_Today
+      from pivoted_df_tbl a 
+      -- inner join count_average_df_tbl b 
+      full outer join count_average_df_tbl b 
+      ON a.table_name=b.table_name 
+        and a.column_name=b.column_name
+        and a.src_sys_cd=b.src_sys_cd 
+      order by Variance_Quantity_Sum_for_Today desc
+    """
+  )
 
 # COMMAND ----------
 
@@ -459,23 +646,24 @@ if generate_email == 'Y':
 
 # COMMAND ----------
 
+import math
+
 if generate_email == 'Y':
   import pandas as pd
 
   pandas_df = spark_df_final_dataset.toPandas()
+  
+  # round each date column value to zero decimals and truncate 
+  cols = [i for i in pandas_df.columns if i.startswith('2')]
+  for c in cols:
+    pandas_df[c] = pandas_df[c].round().apply(lambda x: math.trunc(x))
 
   # Option 1: Render HTML using Pandas Styler
 
-
-
-  styler = pandas_df.style.set_table_styles([{'selector' : 'table,th,tr,td',
-                              'props' : [('border',
-                                          '2px solid orange')]}])
-
-
-
-
-
+  styler = pandas_df.style.set_table_styles([{
+    'selector' : 'table,th,tr,td',
+    'props' : [('border', '1px solid green')]
+  }])
   html_table = styler.render()
 
   # Option 2: Render table using plain html from ppandas
@@ -493,14 +681,14 @@ if generate_email == 'Y':
   from datetime import datetime
   curr_date = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
 
-  SUBJECT = f"Record Count Variance report for {project} ({src_sys_cd}) on  ({curr_date} UTC)"
+  SUBJECT = f"Quantity Sum Variance report for {project} ({src_sys_cd}) on  ({curr_date} UTC)"
 
   BODY_HTML = f"""
   <html>
     <head>
     </head>
     <body>
-      <h1>Record Count Variance  report for {project} ({src_sys_cd}) on ({curr_date} UTC)</h1>
+      <h1>Quantity Sum Variance  report for {project} ({src_sys_cd}) on ({curr_date} UTC)</h1>
       <br>
       <p>Below is the list of tables for {project}({src_sys_cd}) : </p>
       <p  >{html_table}</p>
@@ -509,11 +697,10 @@ if generate_email == 'Y':
   """  
 
   # The email body for recipients with non-HTML email clients.
-  BODY_TEXT = (f"Record Count Variance report for {project} ({src_sys_cd}) on  ({curr_date} UTC)\r\n"
+  BODY_TEXT = (f"Quantity Sum Variance report for {project} ({src_sys_cd}) on  ({curr_date} UTC)\r\n"
                f"Below is the list of tables for {project} ({src_sys_cd}) : \r\n"
                f"{html_table}."
               )
-
 
   # print(BODY_TEXT)
 
@@ -531,7 +718,11 @@ if generate_email == 'Y':
 
     # Replace recipient@example.com with a "To" address. If your account 
     # is still in the sandbox, this address must be verified.
-    RECIPIENT = ["EDP-PlatformOps@thermofisher.onmicrosoft.com"]
+    RECIPIENT = [
+#       "EDP-PlatformOps@thermofisher.onmicrosoft.com",
+      "raju.gokaraju@thermofisher.com",
+      "raul.martinez3@thermofisher.com",
+    ]
     
 
     #RECIPIENT = ["prashant.kumar@thermofisher.com","marouane.skandaji@thermofisher.com"]
@@ -604,3 +795,7 @@ if generate_email == 'Y':
 
 
   email_report()
+
+# COMMAND ----------
+
+

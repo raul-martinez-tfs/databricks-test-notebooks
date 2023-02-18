@@ -333,8 +333,8 @@ project_cntrl_tbl='gbl'
 search_like_src_sys_cd="%"+src_sys_cd_cntrl_tbl+"%"
 
 single_path=list_of_tables[0]
-regex = create_regex_formula(single_path,2)
-view_name=regex
+# regex = create_regex_formula(single_path,2)
+view_name='f_purchase_order'
 Is_src_sys_cd = read_table_and_create_view(bucket,single_path,view_name,"delta") 
 
 print(bucket)
@@ -372,17 +372,18 @@ print(search_like_src_sys_cd)
 
 # MAGIC %sql
 # MAGIC 
-# MAGIC SELECT 
+# MAGIC select 
 # MAGIC   'f_purchase_order' as table_name,
+# MAGIC   'po_qty' as column_name,
 # MAGIC   'wf4s' as project_cntrl_tbl,
 # MAGIC   src_sys_cd,
 # MAGIC   'gbl' as src_sys_cd_cntrl_tbl,
-# MAGIC   sum(po_qty) as po_qty_sum,
+# MAGIC   sum(po_qty) as qty_sum,
 # MAGIC   date_format(current_timestamp,'yMMdd')  as date,
 # MAGIC   cast(date_format(current_timestamp,'y') as string) year ,
 # MAGIC   cast(date_format(current_timestamp,'MM') as string) month, 
 # MAGIC   cast(date_format(current_timestamp,'dd') as string) day,
-# MAGIC   'd_product_plant' as table_name_cntrl_tbl 
+# MAGIC   'f_purchase_order' as table_name_cntrl_tbl 
 # MAGIC from f_purchase_order
 # MAGIC where src_sys_cd like '%gbl%' 
 # MAGIC group by src_sys_cd
