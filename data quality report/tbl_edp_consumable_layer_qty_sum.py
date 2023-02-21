@@ -18,12 +18,28 @@ project = dbutils.widgets.get("project")
 
 dbutils.widgets.text(name = "table_name", defaultValue = "NA", label = "table_name")
 table_name = dbutils.widgets.get("table_name")
+# f_purchase_order,f_po_receipt,f_invntry_bal_dly_hist,f_invntry_txn,f_forecast
 
 dbutils.widgets.text(name = "src_sys_cd", defaultValue = "NA", label = "src_sys_cd")
 src_sys_cd = dbutils.widgets.get("src_sys_cd")
+# nav_ger,gbl,e1lsg,m2m_mbrg,ebs_lgn,saplsg
 
 dbutils.widgets.text(name = "generate_email", defaultValue = "N", label = "generate_email")
 generate_email = dbutils.widgets.get("generate_email")
+
+# COMMAND ----------
+
+fields_data = [
+  ('f_purchase_order', 'po_qty'), 
+  ('f_po_receipt', 'recpt_txn_qty'), 
+  ('f_po_receipt', 'recpt_base_qty'), 
+  ('f_invntry_bal_dly_hist', 'on_hand_qty'), 
+  ('f_invntry_txn', 'txn_qty'),
+  ('f_forecast', 'qty'),
+]
+
+fields_cols = ["table_name", "column_name"]
+fields_table = spark.createDataFrame(data=fields_data, schema=fields_cols).createOrReplaceTempView("fields_table")
 
 # COMMAND ----------
 
@@ -41,7 +57,6 @@ from delta.tables import *
 from pyspark.sql.types import *
 
 # COMMAND ----------
-
 
 list_table_name = table_name.split(",")
 list_project = project.split(",")
@@ -68,7 +83,6 @@ str_src_sys_cd = str_src_sys_cd[:-1]
 # print(table_name,project)
 where_clause=""
 
-
 # 3 conditions 
 # only project 
 if((project == "NA" or project == "") and (table_name == "NA" or table_name == "")  ):
@@ -88,7 +102,6 @@ elif((project != "NA" or project != "") and (table_name != "NA" or table_name !=
 else:
   where_clause =" "
 print(where_clause)
-
 
 print("**************  preparing where clause for Report email notification  **************")
 if((project != "NA" or project != "") and (table_name != "NA" or table_name != "") and (src_sys_cd !="" or src_sys_cd !="NA")):
@@ -141,20 +154,34 @@ print("control_table view got created ")
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC select *
-# MAGIC from tbl_control_table
-# MAGIC limit 10
-# MAGIC ;
+df_control_table_fields=spark.sql(
+  """
+    select a.*, b.column_name
+    from tbl_control_table a
+    join fields_table b
+    on a.table_name=b.table_name
+    ;
+  """
+)
+
+df_control_table_fields.createOrReplaceTempView("tbl_control_table_fields")
 
 # COMMAND ----------
 
-control_table_list = [row.asDict() for row in df_control_table.collect()]
+# %sql
+# select *
+# from tbl_control_table_fields
+# ;
+
+# COMMAND ----------
+
+control_table_list_fields = [row.asDict() for row in df_control_table_fields.collect()]
 
 # if env=='uat':
-#   control_table_list = [{k:v.replace('-prod', '-uat') if k=='target_bucket' else v for k,v in i.items()} for i in control_table_list]
+#   control_table_list_fields = [{k:v.replace('-prod', '-uat') if k=='target_bucket' else v for k,v in i.items()} for i in df_control_table_fields]
   
-print(control_table_list[0])
+print(len(control_table_list_fields))
+print(control_table_list_fields[0])
 
 # COMMAND ----------
 
@@ -212,17 +239,19 @@ def read_table_and_create_view(bucket,single_path,view_name,format):
       return False    
     
     
-def generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd):
+def generate_querry_according_to_view(
+  view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name
+):
    
   if Is_src_sys_cd == True:
     return  f"""
       select 
         '{view_name}' as table_name,
-        'po_qty' as column_name,
+        '{field_name}' as column_name,
         '{project_cntrl_tbl}' as project_cntrl_tbl,
         src_sys_cd,
         '{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,
-        sum(po_qty) as qty_sum,
+        sum({field_name}) as qty_sum,
         date_format(current_timestamp,'yMMdd')  as date,
         cast(date_format(current_timestamp,'y') as string) year ,
         cast(date_format(current_timestamp,'MM') as string) month, 
@@ -237,11 +266,11 @@ def generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_t
     return  f"""
       select 
         '{view_name}' as table_name,
-        'po_qty' as column_name,
+        '{field_name}' as column_name,
         '{project_cntrl_tbl}' as project_cntrl_tbl,
         'NA' as src_sys_cd ,
         '{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,
-        sum(po_qty) as qty_sum,
+        sum({field_name}) as qty_sum,
         date_format(current_timestamp,'yMMdd')  as date,
         cast(date_format(current_timestamp,'y') as string) year ,
         cast(date_format(current_timestamp,'MM') as string) month, 
@@ -259,19 +288,19 @@ def filter_dims_and_facts_from_bucket(list_of_tables):
   return new_list
 
 
-def read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd):
+def read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name):
   querry=''
   for single_path in list_of_tables:
     regex = create_regex_formula(single_path,2)
     view_name=regex
     try:
       Is_src_sys_cd = read_table_and_create_view(bucket,single_path,view_name,"delta") 
-      querry = querry + generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd)+'\n union '
+      querry = querry + generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name)+'\n union '
 
     except Exception as e:
       try:
         Is_src_sys_cd = read_table_and_create_view(bucket,single_path,view_name,"parquet") 
-        querry = querry + generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd)+'\n union '
+        querry = querry + generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name)+'\n union '
 
       except Exception as e:
         print(e)
@@ -312,42 +341,40 @@ output_table = 'tbl_edp_consumable_layer_qty_sum'
 # COMMAND ----------
 
 # DBTITLE 1,Main fxn
-for location in control_table_list:
+for location in control_table_list_fields:
   bucket = location["target_bucket"]
   src_sys_cd_cntrl_tbl=location["src_sys_cd"]
   table_name_cntrl_tbl=location["table_name"]
   project_cntrl_tbl=location["project"]
   prefix = "processed/"
   table = location["table_name"]  
+  field_name = location["column_name"]  
   list_of_tables=[]
   search_like_src_sys_cd="%"+src_sys_cd_cntrl_tbl+"%"
-  print(search_like_src_sys_cd)
-  print(project_cntrl_tbl)
-  print(src_sys_cd_cntrl_tbl)
-  print(table_name_cntrl_tbl)
-
+  print('search_like_src_sys_cd:', search_like_src_sys_cd)
+  print('project_cntrl_tbl:', project_cntrl_tbl)
+  print('src_sys_cd_cntrl_tbl:', src_sys_cd_cntrl_tbl)
+  print('table_name_cntrl_tbl:', table_name_cntrl_tbl)
+  print('field_name:', field_name)
   
   if table.lower() =="all":
     list_of_tables = folder_list_creation(bucket,prefix)
-    print(list_of_tables)
-    sql = read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd)
+    print('list_of_tables:', list_of_tables)
+    sql = read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name)
   else:
     
     for single_table in table.split(','):
       list_of_tables.append(prefix + single_table+'/')
-    sql = read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd)
+    print('list_of_tables:', list_of_tables)
+    sql = read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name)
   try:
     dataframe = spark.sql(sql)
   except Exception as e:
     print(e)
     continue
   df_incremental_data = df_incremental_data.union(dataframe)
-#   break
-
-
-# COMMAND ----------
-
-df_incremental_data.show()
+  
+  print('')
 
 # COMMAND ----------
 
@@ -373,22 +400,23 @@ df_incremental_data_for_today=spark.sql(
 )
 df_incremental_data_for_today.createOrReplaceTempView("tbl_incremental_data_for_today")
 
-
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC select * from tbl_incremental_data_for_today limit 10;
+# MAGIC select * 
+# MAGIC from tbl_incremental_data_for_today 
+# MAGIC limit 10;
 
 # COMMAND ----------
 
 # # WARNING - ONLY CLEAR TABLE FOR TESTING
-# # dbutils.fs.ls('s3://tfsdl-edp-common-dims-uat/processed/tbl_edp_consumable_layer_qty_sum')
+# dbutils.fs.ls('s3://tfsdl-edp-common-dims-uat/processed/tbl_edp_consumable_layer_qty_sum')
 # dbutils.fs.rm('s3://tfsdl-edp-common-dims-uat/processed/tbl_edp_consumable_layer_qty_sum', True)
 
 # COMMAND ----------
 
 # # WARNING - ONLY DURING SET-UP - create target delta table
-# df=spark.sql('select * from tbl_incremental_data_for_today limit 1;')
+# df=spark.sql('select * from tbl_incremental_data_for_today')
 # p_list = ['year', 'month', 'day']
 # df.write.partitionBy(p_list).format('delta').mode('append').save(f's3://tfsdl-edp-common-dims-uat/processed/{output_table}')
 
@@ -402,12 +430,10 @@ df_target_data.createOrReplaceTempView("tbl_target_data")
 # COMMAND ----------
 
 # MAGIC %sql 
-# MAGIC select * from tbl_target_data limit 10;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC select * from tbl_incremental_data_for_today limit 10;
+# MAGIC select * 
+# MAGIC from tbl_target_data
+# MAGIC limit 10
+# MAGIC ;
 
 # COMMAND ----------
 
@@ -611,13 +637,13 @@ if generate_email == 'Y':
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC select * from pivoted_df_tbl limit 10;
+# %sql
+# select * from pivoted_df_tbl limit 10;
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC select * from formatted_moving_average_7_days_df_tbl limit 10;
+# %sql
+# select * from formatted_moving_average_7_days_df_tbl limit 10;
 
 # COMMAND ----------
 
@@ -656,7 +682,7 @@ if generate_email == 'Y':
   # round each date column value to zero decimals and truncate 
   cols = [i for i in pandas_df.columns if i.startswith('2')]
   for c in cols:
-    pandas_df[c] = pandas_df[c].round().apply(lambda x: math.trunc(x))
+    pandas_df[c] = pandas_df[c].round().apply(lambda x: "{:,}".format(math.trunc(x)))
 
   # Option 1: Render HTML using Pandas Styler
 
@@ -722,6 +748,7 @@ if generate_email == 'Y':
 #       "EDP-PlatformOps@thermofisher.onmicrosoft.com",
       "raju.gokaraju@thermofisher.com",
       "raul.martinez3@thermofisher.com",
+#       "lekhana.potla@thermofisher.com",
     ]
     
 
