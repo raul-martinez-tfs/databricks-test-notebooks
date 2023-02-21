@@ -748,7 +748,7 @@ if generate_email == 'Y':
 #       "EDP-PlatformOps@thermofisher.onmicrosoft.com",
       "raju.gokaraju@thermofisher.com",
       "raul.martinez3@thermofisher.com",
-#       "lekhana.potla@thermofisher.com",
+      "lekhana.potla@thermofisher.com",
     ]
     
 
