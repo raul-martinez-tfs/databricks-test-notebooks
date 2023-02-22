@@ -59,7 +59,9 @@ lighthouse_erps = [
 # MAGIC %sql
 # MAGIC select * -- txn_qty
 # MAGIC from f_invntry_txn 
-# MAGIC limit 10;
+# MAGIC where src_sys_cd = 'ebs_lgn' and txn_period='201501'
+# MAGIC limit 10
+# MAGIC ;
 
 # COMMAND ----------
 

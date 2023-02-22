@@ -22,7 +22,7 @@ table_name = dbutils.widgets.get("table_name")
 
 dbutils.widgets.text(name = "src_sys_cd", defaultValue = "NA", label = "src_sys_cd")
 src_sys_cd = dbutils.widgets.get("src_sys_cd")
-# nav_ger,gbl,e1lsg,m2m_mbrg,ebs_lgn,saplsg
+# nav_ger,gbl,e1lsg,m2m,ebs_lgn,saplsg
 
 dbutils.widgets.text(name = "generate_email", defaultValue = "N", label = "generate_email")
 generate_email = dbutils.widgets.get("generate_email")
@@ -395,7 +395,7 @@ df_incremental_data_for_today=spark.sql(
       year,
       month,
       day 
-      from tbl_incremental_data
+    from tbl_incremental_data
   """
 )
 df_incremental_data_for_today.createOrReplaceTempView("tbl_incremental_data_for_today")
@@ -405,7 +405,7 @@ df_incremental_data_for_today.createOrReplaceTempView("tbl_incremental_data_for_
 # MAGIC %sql
 # MAGIC select * 
 # MAGIC from tbl_incremental_data_for_today 
-# MAGIC limit 10;
+# MAGIC limit 5;
 
 # COMMAND ----------
 
@@ -432,7 +432,7 @@ df_target_data.createOrReplaceTempView("tbl_target_data")
 # MAGIC %sql 
 # MAGIC select * 
 # MAGIC from tbl_target_data
-# MAGIC limit 10
+# MAGIC limit 5
 # MAGIC ;
 
 # COMMAND ----------
@@ -573,8 +573,9 @@ if generate_email == 'Y':
   #Do Validation Here for the combination of group by column and date there should be only one value 
   pivoted_df.createOrReplaceTempView("pivoted_df_tbl")
 
-  moving_average_7_days_df=spark.sql(
-    """
+  N_days = 2
+  moving_average_2_days_df=spark.sql(
+    f"""
       select 
         table_name,
         column_name,
@@ -582,14 +583,18 @@ if generate_email == 'Y':
         project,
         formatted_date,
         qty_sum,
-        row_number() over(partition by table_name,column_name,src_sys_cd,project order by formatted_date) as row_num,
-        Avg(qty_sum) over(partition by table_name,column_name,src_sys_cd order by formatted_date ) as Moving_Average 
+        row_number() over(partition by table_name,column_name,src_sys_cd,project order by formatted_date desc) as row_num,
+        Avg(qty_sum) over(
+          partition by table_name,column_name,src_sys_cd 
+          order by formatted_date desc
+          RANGE BETWEEN CURRENT ROW AND {N_days-1} FOLLOWING
+          ) as Moving_Average 
       from filtered_df_tbl
     """
   )
-  moving_average_7_days_df.createOrReplaceTempView("moving_average_7_days_df_tbl")
+  moving_average_2_days_df.createOrReplaceTempView("moving_average_2_days_df_tbl")
   
-  formatted_moving_average_7_days_df=spark.sql(
+  formatted_moving_average_2_days_df=spark.sql(
     """
       select 
         table_name,
@@ -599,14 +604,15 @@ if generate_email == 'Y':
         formatted_date,
         qty_sum,
         row_num,
-        floor(Moving_Average) as Moving_Average  
-      from moving_average_7_days_df_tbl
+        -- floor(Moving_Average) as Moving_Average 
+        Moving_Average
+      from moving_average_2_days_df_tbl
     """
   )
-  formatted_moving_average_7_days_df.createOrReplaceTempView("formatted_moving_average_7_days_df_tbl")
+  formatted_moving_average_2_days_df.createOrReplaceTempView("formatted_moving_average_2_days_df_tbl")
 
   count_average_df=spark.sql(
-    """
+    f"""
       select 
         table_name,
         column_name,
@@ -615,9 +621,9 @@ if generate_email == 'Y':
         formatted_date,
         qty_sum,
         row_num,
-        last_7_days_Average,
-        (qty_sum-last_7_days_Average) as Variance_Quantity_Sum_for_Today,
-        concat(format_number((((qty_sum-last_7_days_Average)/last_7_days_Average)*100),2),' %') as Variance_percentage_for_Today 
+        last_2_days_Average,
+        (qty_sum-last_2_days_Average) as Variance_Quantity_Sum_for_Today,
+        concat(format_number((((qty_sum-last_2_days_Average)/last_2_days_Average)*100),6),' %') as Variance_percentage_for_Today 
       from (
         select 
           table_name,
@@ -627,10 +633,11 @@ if generate_email == 'Y':
           formatted_date,
           qty_sum,
           row_num,
-          lag(Moving_Average) over(partition by table_name,column_name,src_sys_cd,project order by formatted_date) as last_7_days_Average  
-        from formatted_moving_average_7_days_df_tbl 
-        where row_num in (7,8)) a 
-      where a.row_num=8
+          lag(Moving_Average, 1) over(partition by table_name,column_name,src_sys_cd,project order by formatted_date asc) as last_2_days_Average  
+        from formatted_moving_average_2_days_df_tbl 
+        where row_num between {N_days-1} and {N_days+1}
+        ) a 
+      where a.row_num={N_days}-1
     """
   )
   count_average_df.createOrReplaceTempView("count_average_df_tbl")
@@ -652,7 +659,7 @@ if generate_email == 'Y':
     """
       select 
         a.*,
-        b.last_7_days_Average,
+        b.last_2_days_Average,
         b.Variance_Quantity_Sum_for_Today,
         b.Variance_percentage_for_Today
       from pivoted_df_tbl a 
@@ -680,12 +687,17 @@ if generate_email == 'Y':
   pandas_df = spark_df_final_dataset.toPandas()
   
   # round each date column value to zero decimals and truncate 
-  cols = [i for i in pandas_df.columns if i.startswith('2')]
+  cols = [i for i in pandas_df.columns if i.startswith('2')] + [
+    'last_2_days_Average', 
+    'Variance_Quantity_Sum_for_Today'
+  ]
   for c in cols:
-    pandas_df[c] = pandas_df[c].round().apply(lambda x: "{:,}".format(math.trunc(x)))
-
+#     pandas_df[c] = pandas_df[c].round().apply(lambda x: "{:,}".format(math.trunc(x)))
+    pandas_df[c] = pandas_df[c].round(3).apply(lambda x: "{:,}".format(x))
+    
+  pandas_df.drop(['project'], axis=1, inplace=True)
+  
   # Option 1: Render HTML using Pandas Styler
-
   styler = pandas_df.style.set_table_styles([{
     'selector' : 'table,th,tr,td',
     'props' : [('border', '1px solid green')]
@@ -700,6 +712,11 @@ if generate_email == 'Y':
   # html_table = tabulate(pandas_df, headers = 'keys', tablefmt = 'psql')
 
   # print(html_table)
+
+# COMMAND ----------
+
+print(pandas_df.src_sys_cd.unique())
+pandas_df.head()
 
 # COMMAND ----------
 
