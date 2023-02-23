@@ -1,4 +1,8 @@
 # Databricks notebook source
+
+
+# COMMAND ----------
+
 # import tables as SQL views
 f_purchase_order = spark.read.format('delta').load("s3://tfsdl-edp-supplychain-prod/processed/f_purchase_order/")
 f_purchase_order.createOrReplaceTempView("f_purchase_order")
@@ -72,15 +76,84 @@ lighthouse_erps = [
 
 # COMMAND ----------
 
-
-
-# COMMAND ----------
-
-
+# MAGIC %sql
+# MAGIC show tables
 
 # COMMAND ----------
 
+# MAGIC %sql
+# MAGIC CREATE EXTERNAL TABLE tfsdl_edp_common_dims_uat.tbl_edp_consumable_layer_qty_sum_2 (
+# MAGIC   table_name string,
+# MAGIC   column_name string,
+# MAGIC   src_sys_cd string,
+# MAGIC   project string,
+# MAGIC   qty_sum string,
+# MAGIC   report_date string,
+# MAGIC   table_name_cntrl_tbl string,
+# MAGIC   src_sys_cd_cntrl_tbl string
+# MAGIC ) 
+# MAGIC PARTITIONED BY (year string,month string,day string) 
+# MAGIC STORED AS INPUTFORMAT 'org.apache.hadoop.mapred.TextInputFormat'
+# MAGIC OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat' 
+# MAGIC LOCATION 's3://tfsdl-edp-common-dims-uat/processed/tbl_edp_consumable_layer_qty_sum/_symlink_format_manifest/'
+# MAGIC TBLPROPERTIES ('transient_lastDdlTime'='1662652785')
+# MAGIC ;
 
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC GENERATE symlink_format_manifest FOR TABLE tfsdl_edp_common_dims_uat.tbl_edp_consumable_layer_qty_sum;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC use tfsdl_edp_common_dims_uat
+# MAGIC show TABLES
+# MAGIC ;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC SELECT *
+# MAGIC FROM information_schema.columns
+# MAGIC limit 10
+# MAGIC -- WHERE  table_schema = 'rdspostgresql'
+# MAGIC ;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC select * 
+# MAGIC -- from tfsdl_edp_common_dims_uat.tbl_edp_consumable_layer_qty_sum
+# MAGIC from tfsdl_edp_common_dims_uat.d_bom
+# MAGIC limit 10
+# MAGIC ;
+
+# COMMAND ----------
+
+tbl_edp_consumable_layer_qty_sum = spark.read.format('delta').load("s3://tfsdl-edp-common-dims-uat/processed/tbl_edp_consumable_layer_qty_sum/")
+tbl_edp_consumable_layer_qty_sum.createOrReplaceTempView("tbl_edp_consumable_layer_qty_sum")
+
+# COMMAND ----------
+
+d_bom = spark.read.format('delta').load("s3://tfsdl-edp-common-dims-uat/delta/d_bom/")
+d_bom.createOrReplaceTempView("d_bom")
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC select * 
+# MAGIC from d_bom
+# MAGIC limit 10
+# MAGIC ;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC select * 
+# MAGIC from tbl_edp_consumable_layer_qty_sum
+# MAGIC limit 10
+# MAGIC ;
 
 # COMMAND ----------
 
