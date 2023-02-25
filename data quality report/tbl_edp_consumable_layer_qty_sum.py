@@ -15,6 +15,7 @@ env = dbutils.widgets.get("environment")
 
 dbutils.widgets.text(name = "project", defaultValue = "NA", label = "project")
 project = dbutils.widgets.get("project")
+# lighthouse,cad,aig3s
 
 dbutils.widgets.text(name = "table_name", defaultValue = "NA", label = "table_name")
 table_name = dbutils.widgets.get("table_name")
@@ -93,7 +94,7 @@ elif((project != "NA" or project != "") and (table_name == "NA" or table_name ==
 
 # only table and Src_Sys_cd
 elif((project == "NA" or project == "" ) and (table_name != "NA" or table_name != "" or src_sys_cd !="" or src_sys_cd !="NA" )):
-  where_clause = f"where table_name in ({str_table_name} and  src_sys_cd in ({str_table_name}) "
+  where_clause = f"where table_name in ({str_table_name}) and src_sys_cd in ({str_table_name}) "
 
 # both present 
 elif((project != "NA" or project != "") and (table_name != "NA" or table_name != "") and (src_sys_cd !="" or src_sys_cd !="NA")):
