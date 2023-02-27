@@ -624,7 +624,7 @@ if generate_email == 'Y':
         row_num,
         last_2_days_Average,
         (qty_sum-last_2_days_Average) as Variance_Quantity_Sum_for_Today,
-        concat(format_number((((qty_sum-last_2_days_Average)/last_2_days_Average)*100),6),' %') as Variance_percentage_for_Today 
+        concat(format_number((((qty_sum-last_2_days_Average)/last_2_days_Average)*100),3),' %') as Variance_percentage_for_Today 
       from (
         select 
           table_name,
