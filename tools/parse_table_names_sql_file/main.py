@@ -31,16 +31,29 @@ def process_sql_file(file_name):
 
     # remove extra whitespaces and make list
     words = string.split()
+    # print(words)
 
     return words
 
 def find_table_names(words):
     table_names = set()
-    previous_word = None
+    previous_word = ''
 
     for word in words:
-        if previous_word == 'from' or previous_word == 'join':
+        # print(words)
+        # print(word)
+        # if word.strip()=='':
+        #     continue
+
+        if previous_word.lower() == 'from' or previous_word.lower() == 'join':
+            # print(word)
             if word != '(':
+                if ',' in word:
+                    print(word)
+                    words_list = word.split(',')
+                    for word in words_list:
+                        table_names.add(word)
+                    # continue 
                 table_names.add(word)
         previous_word = word
 
