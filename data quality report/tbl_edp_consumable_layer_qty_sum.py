@@ -559,12 +559,13 @@ if generate_email == 'Y':
   #s2_df.printSchema()
   s2_df.createOrReplaceTempView("s2_df_tbl")
 
+  number_of_days_back_to_show = 3
   filtered_df=spark.sql(
-    """
+    f"""
       select * 
       from 
       s2_df_tbl 
-      where formatted_date > current_date()-8
+      where formatted_date > current_date()-{number_of_days_back_to_show}
     """
   )
   filtered_df.createOrReplaceTempView("filtered_df_tbl")
@@ -688,15 +689,20 @@ if generate_email == 'Y':
   pandas_df = spark_df_final_dataset.toPandas()
   
   # round each date column value to zero decimals and truncate 
-  cols = [i for i in pandas_df.columns if i.startswith('2')] + [
-    'last_2_days_Average', 
-    'Variance_Quantity_Sum_for_Today'
-  ]
-  for c in cols:
+  date_cols = sorted([i for i in pandas_df.columns if i.startswith('2')]) 
+  metric_cols = ['last_2_days_Average', 'Variance_Quantity_Sum_for_Today']
+  
+  for c in date_cols+metric_cols:
 #     pandas_df[c] = pandas_df[c].round().apply(lambda x: "{:,}".format(math.trunc(x)))
     pandas_df[c] = pandas_df[c].round(3).apply(lambda x: "{:,}".format(x))
+  
+  for c in metric_cols+['Variance_percentage_for_Today']:
+    d1 = pandas_df[date_cols[0]]
+    d2 = pandas_df[date_cols[1]]
+    rule = (lambda x: x=='nan' or x.strip()=='')
+    pandas_df[c][d1.apply(rule)|d2.apply(rule)] = 'nan'
     
-  pandas_df.drop(['project'], axis=1, inplace=True)
+#   pandas_df.drop(['project'], axis=1, inplace=True)
   
   # Option 1: Render HTML using Pandas Styler
   styler = pandas_df.style.set_table_styles([{
