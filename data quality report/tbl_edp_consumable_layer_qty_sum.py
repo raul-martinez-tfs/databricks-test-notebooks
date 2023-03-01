@@ -218,7 +218,6 @@ def folder_list_creation(bucket,prefix):
   else:
     return Path_of_folder_in_list
   
-  
 def read_table_and_create_view(bucket,single_path,view_name,format):
     header = []
     if format == 'delta':
@@ -673,7 +672,7 @@ if generate_email == 'Y':
     """
       select 
         a.*,
-        b.last_1_days_Average,
+        -- b.last_1_days_Average,
         b.Variance_Quantity_Sum_for_Today,
         b.Variance_percentage_for_Today
       from pivoted_df_tbl a 
