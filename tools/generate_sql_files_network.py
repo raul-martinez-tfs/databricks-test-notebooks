@@ -1,6 +1,7 @@
 # Databricks notebook source
 # !pip install awswrangler
 # !pip install plotly==5.13.0
+# !pip install awscli
 
 # COMMAND ----------
 
@@ -8,6 +9,29 @@ import awswrangler as wr
 import boto3
 from collections import defaultdict
 import plotly.graph_objects as go
+from os import popen, environ
+
+# COMMAND ----------
+
+config = {"OutputLocation": "s3://aws-athena-query-results-903987810958-us-east-1/"}
+AWS_REGION = "us-east-1" 
+# ACCESS_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser_UserName')
+# SECRET_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser_PassWord')
+
+ACCESS_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser-test_UserName')
+SECRET_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser-test_PassWord')
+
+my_session = boto3.Session(
+  aws_access_key_id=ACCESS_KEY,
+  aws_secret_access_key=SECRET_KEY,
+  region_name=AWS_REGION,
+)
+
+# boto3.setup_default_session(
+#   aws_access_key_id=ACCESS_KEY,
+#   aws_secret_access_key=SECRET_KEY,
+#   region_name=AWS_REGION,
+# )
 
 # COMMAND ----------
 
@@ -51,7 +75,8 @@ def find_table_names(words):
                 
                 table_names.add(word)
         previous_word = word
-    return sorted(list(table_names))
+    table_names = [i for i in table_names if (i.strip()!='') and (i!=None)]
+    return sorted(table_names)
 
 def find_table_names_from_sql_file(bucket, key):
     words = process_sql_file(bucket, key)
@@ -75,6 +100,31 @@ tables_list = [
   'd_company',
   'cntrl_tower_tbls',
 ]
+
+# COMMAND ----------
+
+s3_client = boto3.client(
+    's3',
+    aws_access_key_id=ACCESS_KEY,
+    aws_secret_access_key=SECRET_KEY,
+#     aws_session_token=SESSION_TOKEN,
+    region_name=AWS_REGION,
+)
+
+s3 = boto3.resource(
+    's3',
+    aws_access_key_id=ACCESS_KEY,
+    aws_secret_access_key=SECRET_KEY,
+#     aws_session_token=SESSION_TOKEN,
+    region_name=AWS_REGION,
+)
+
+# COMMAND ----------
+
+my_bucket = s3.Bucket('tfsdl-edp-common-dims-prod')
+print(my_bucket)
+for my_bucket_object in my_bucket.objects.all():
+    print(my_bucket_object)
 
 # COMMAND ----------
 
@@ -134,6 +184,85 @@ del main_dict_cleaned['cntrl_tower_tbls']
 
 main_dict_cleaned.update(cntrl_tower_tbls_dict)
 print(main_dict_cleaned.keys()) 
+
+# COMMAND ----------
+
+main_dict_cleaned.keys()
+
+# COMMAND ----------
+
+main_dict_cleaned['f_invntry_bal_dly_hist'].keys()
+
+# COMMAND ----------
+
+# find s3_path_delta for target tables
+directories_to_sniff = [
+  's3://tfsdl-edp-common-dims-prod/processed/',
+  's3://tfsdl-edp-supplychain-prod/processed/',
+]
+folders_list = main_dict_cleaned.keys()
+
+for dir_ in directories_to_sniff:
+  for fp in wr.s3.list_directories(dir_):
+    
+    folder_name = fp.split('/')[-2]
+    if folder_name in folders_list:
+      main_dict_cleaned[folder_name]['s3_path_delta']=fp
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+wr.s3.list_directories('s3://tfsdl-edp-common-dims-prod/workspace/d_product_supplier_xref/')
+
+# COMMAND ----------
+
+# verify every target table was found
+assert(sum(['s3_path_delta' in v.keys() for k,v in main_dict_cleaned.items()]) == len(main_dict_cleaned.keys()))
+
+# COMMAND ----------
+
+source_tables_all = []
+for k1,v1 in main_dict_cleaned.items():
+  for k2,v2 in v1.items():
+    if k2.endswith('.sql'):
+      source_tables_all.append(v2)
+      
+source_tables_all = sum(source_tables_all, [])
+print(len(source_tables_all))
+
+source_tables = set(list(source_tables_all))
+print(len(source_tables))
+
+# COMMAND ----------
+
+source_tables
+
+# COMMAND ----------
+
+databases = wr.catalog.databases()
+
+# COMMAND ----------
+
+databases
+
+# COMMAND ----------
+
+wr.catalog.tables(name_contains="f_")
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+
 
 # COMMAND ----------
 

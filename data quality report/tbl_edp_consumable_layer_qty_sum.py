@@ -31,15 +31,15 @@ generate_email = dbutils.widgets.get("generate_email")
 # COMMAND ----------
 
 fields_data = [
-  ('f_purchase_order', 'po_qty'), 
-  ('f_po_receipt', 'recpt_txn_qty'), 
-  ('f_po_receipt', 'recpt_base_qty'), 
-  ('f_invntry_bal_dly_hist', 'on_hand_qty'), 
-  ('f_invntry_txn', 'txn_qty'),
-  ('f_forecast', 'qty'),
+  ('f_purchase_order', 'po_qty', 'po_crt_dt'), 
+  ('f_po_receipt', 'recpt_txn_qty', 'txn_date'), 
+  ('f_po_receipt', 'recpt_base_qty', 'txn_date'), 
+  ('f_invntry_bal_dly_hist', 'on_hand_qty', 'capture_dt'), 
+  ('f_invntry_txn', 'txn_qty', 'txn_date'),
+  ('f_forecast', 'qty', 'capture_dt'),
 ]
 
-fields_cols = ["table_name", "column_name"]
+fields_cols = ["table_name", "column_name", "dt_column"]
 fields_table = spark.createDataFrame(data=fields_data, schema=fields_cols).createOrReplaceTempView("fields_table")
 
 # COMMAND ----------
@@ -157,7 +157,7 @@ print("control_table view got created ")
 
 df_control_table_fields=spark.sql(
   """
-    select a.*, b.column_name
+    select a.*, b.column_name, b.dt_column
     from tbl_control_table a
     join fields_table b
     on a.table_name=b.table_name
@@ -169,10 +169,10 @@ df_control_table_fields.createOrReplaceTempView("tbl_control_table_fields")
 
 # COMMAND ----------
 
-# %sql
-# select *
-# from tbl_control_table_fields
-# ;
+# MAGIC %sql
+# MAGIC select *
+# MAGIC from tbl_control_table_fields
+# MAGIC ;
 
 # COMMAND ----------
 
@@ -202,7 +202,6 @@ def create_regex_formula(text,formula_number):
   if formula_number ==  2:
     text=text.split('/')
     return text[-2]
-  
   
 def folder_list_creation(bucket,prefix):
   result = s3_client.list_objects(Bucket=bucket, Prefix=prefix, Delimiter='/')
@@ -239,9 +238,8 @@ def read_table_and_create_view(bucket,single_path,view_name,format):
       print("src_sys_cd does not exist")
       return False    
     
-    
 def generate_querry_according_to_view(
-  view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name
+  view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name,dt_column
 ):
    
   if Is_src_sys_cd == True:
@@ -249,6 +247,7 @@ def generate_querry_according_to_view(
       select 
         '{view_name}' as table_name,
         '{field_name}' as column_name,
+        '{dt_column}' as dt_column,
         '{project_cntrl_tbl}' as project_cntrl_tbl,
         src_sys_cd,
         '{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,
@@ -259,7 +258,8 @@ def generate_querry_according_to_view(
         cast(date_format(current_timestamp,'dd') as string) day,
         '{table_name_cntrl_tbl}' as table_name_cntrl_tbl 
       from {view_name}
-      where src_sys_cd like '{search_like_src_sys_cd}'
+      where src_sys_cd like '{search_like_src_sys_cd}' 
+        and {dt_column} = replace(cast(current_date() as string), '-', '')
       group by src_sys_cd
       ;
     """
@@ -268,6 +268,7 @@ def generate_querry_according_to_view(
       select 
         '{view_name}' as table_name,
         '{field_name}' as column_name,
+        '{dt_column}' as dt_column,
         '{project_cntrl_tbl}' as project_cntrl_tbl,
         'NA' as src_sys_cd ,
         '{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,
@@ -288,20 +289,19 @@ def filter_dims_and_facts_from_bucket(list_of_tables):
       new_list.append(single_table)
   return new_list
 
-
-def read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name):
+def read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name,dt_column):
   querry=''
   for single_path in list_of_tables:
     regex = create_regex_formula(single_path,2)
     view_name=regex
     try:
       Is_src_sys_cd = read_table_and_create_view(bucket,single_path,view_name,"delta") 
-      querry = querry + generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name)+'\n union '
+      querry = querry + generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name,dt_column)+'\n union '
 
     except Exception as e:
       try:
         Is_src_sys_cd = read_table_and_create_view(bucket,single_path,view_name,"parquet") 
-        querry = querry + generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name)+'\n union '
+        querry = querry + generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name,dt_column)+'\n union '
 
       except Exception as e:
         print(e)
@@ -314,6 +314,7 @@ def read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_nam
 TableFields = [
   StructField("table_name",StringType(),False),
   StructField("column_name",StringType(),False),
+  StructField("dt_column",StringType(),False),
   StructField("project_cntrl_tbl",StringType(),False),# from cntrl_tbl
   StructField("src_sys_cd",StringType(),True),
   StructField("src_sys_cd_cntrl_tbl",StringType(),False),
@@ -349,7 +350,8 @@ for location in control_table_list_fields:
   project_cntrl_tbl=location["project"]
   prefix = "processed/"
   table = location["table_name"]  
-  field_name = location["column_name"]  
+  field_name = location["column_name"] 
+  dt_column = location["dt_column"] 
   list_of_tables=[]
   search_like_src_sys_cd="%"+src_sys_cd_cntrl_tbl+"%"
   print('search_like_src_sys_cd:', search_like_src_sys_cd)
@@ -357,17 +359,18 @@ for location in control_table_list_fields:
   print('src_sys_cd_cntrl_tbl:', src_sys_cd_cntrl_tbl)
   print('table_name_cntrl_tbl:', table_name_cntrl_tbl)
   print('field_name:', field_name)
+  print('dt_column:', dt_column)
   
   if table.lower() =="all":
     list_of_tables = folder_list_creation(bucket,prefix)
     print('list_of_tables:', list_of_tables)
-    sql = read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name)
+    sql = read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name,dt_column)
   else:
     
     for single_table in table.split(','):
       list_of_tables.append(prefix + single_table+'/')
     print('list_of_tables:', list_of_tables)
-    sql = read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name)
+    sql = read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name,dt_column)
   try:
     dataframe = spark.sql(sql)
   except Exception as e:
@@ -387,8 +390,9 @@ df_incremental_data_for_today=spark.sql(
     select 
       distinct table_name,
       column_name,
-      src_sys_cd,
+      dt_column,
       project_cntrl_tbl as project,
+      src_sys_cd,
       qty_sum,
       date,
       table_name_cntrl_tbl,
@@ -404,9 +408,9 @@ df_incremental_data_for_today.createOrReplaceTempView("tbl_incremental_data_for_
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC select * 
+# MAGIC select *
 # MAGIC from tbl_incremental_data_for_today 
-# MAGIC limit 5;
+# MAGIC ;
 
 # COMMAND ----------
 
@@ -443,6 +447,7 @@ df_target_data.createOrReplaceTempView("tbl_target_data")
 # MAGIC using tbl_incremental_data_for_today as Source
 # MAGIC ON upper(ltrim(rtrim(Destination.table_name)))=upper(ltrim(rtrim(Source.table_name)))
 # MAGIC   AND upper(ltrim(rtrim(Destination.column_name)))=upper(ltrim(rtrim(Source.column_name)))
+# MAGIC   AND upper(ltrim(rtrim(Destination.dt_column)))=upper(ltrim(rtrim(Source.dt_column)))
 # MAGIC   AND upper(ltrim(rtrim(Destination.project)))=upper(ltrim(rtrim(Source.project)))
 # MAGIC   AND upper(ltrim(rtrim(Destination.src_sys_cd)))=upper(ltrim(rtrim(Source.src_sys_cd)))
 # MAGIC   and Destination.date = Source.date
@@ -457,6 +462,7 @@ df_target_data.createOrReplaceTempView("tbl_target_data")
 # MAGIC   THEN INSERT (
 # MAGIC     table_name,
 # MAGIC     column_name,
+# MAGIC     dt_column,
 # MAGIC     src_sys_cd,
 # MAGIC     project,
 # MAGIC     qty_sum,
@@ -470,6 +476,7 @@ df_target_data.createOrReplaceTempView("tbl_target_data")
 # MAGIC   VALUES (
 # MAGIC     Source.table_name,
 # MAGIC     Source.column_name,
+# MAGIC     Source.dt_column,
 # MAGIC     Source.src_sys_cd,
 # MAGIC     Source.project,
 # MAGIC     Source.qty_sum,
@@ -549,8 +556,9 @@ if generate_email == 'Y':
       select 
         table_name,
         column_name,
-        src_sys_cd,
+        dt_column,
         project,
+        src_sys_cd,
         to_date(date, 'yyyyMMdd') as formatted_date,
         qty_sum
       from tbl_source_df_2
@@ -559,7 +567,7 @@ if generate_email == 'Y':
   #s2_df.printSchema()
   s2_df.createOrReplaceTempView("s2_df_tbl")
 
-  number_of_days_back_to_show = 3
+  number_of_days_back_to_show = 2
   filtered_df=spark.sql(
     f"""
       select * 
@@ -570,73 +578,77 @@ if generate_email == 'Y':
   )
   filtered_df.createOrReplaceTempView("filtered_df_tbl")
 
-  pivoted_df=filtered_df.groupBy("table_name","column_name","src_sys_cd","project").pivot("formatted_date").sum("qty_sum")
+  pivoted_df=filtered_df.groupBy("table_name","column_name","dt_column","src_sys_cd","project").pivot("formatted_date").sum("qty_sum")
   
   #Do Validation Here for the combination of group by column and date there should be only one value 
   pivoted_df.createOrReplaceTempView("pivoted_df_tbl")
 
   N_days = 2
-  moving_average_2_days_df=spark.sql(
+  moving_average_1_days_df=spark.sql(
     f"""
       select 
         table_name,
         column_name,
-        src_sys_cd,
+        dt_column,
         project,
+        src_sys_cd,
         formatted_date,
         qty_sum,
-        row_number() over(partition by table_name,column_name,src_sys_cd,project order by formatted_date desc) as row_num,
+        row_number() over(partition by table_name,column_name,dt_column,src_sys_cd,project order by formatted_date desc) as row_num,
         Avg(qty_sum) over(
-          partition by table_name,column_name,src_sys_cd 
+          partition by table_name,column_name,dt_column,src_sys_cd 
           order by formatted_date desc
           RANGE BETWEEN CURRENT ROW AND {N_days-1} FOLLOWING
           ) as Moving_Average 
       from filtered_df_tbl
     """
   )
-  moving_average_2_days_df.createOrReplaceTempView("moving_average_2_days_df_tbl")
+  moving_average_1_days_df.createOrReplaceTempView("moving_average_1_days_df_tbl")
   
-  formatted_moving_average_2_days_df=spark.sql(
+  formatted_moving_average_1_days_df=spark.sql(
     """
       select 
         table_name,
         column_name,
-        src_sys_cd,
+        dt_column,
         project,
+        src_sys_cd,
         formatted_date,
         qty_sum,
         row_num,
         -- floor(Moving_Average) as Moving_Average 
         Moving_Average
-      from moving_average_2_days_df_tbl
+      from moving_average_1_days_df_tbl
     """
   )
-  formatted_moving_average_2_days_df.createOrReplaceTempView("formatted_moving_average_2_days_df_tbl")
+  formatted_moving_average_1_days_df.createOrReplaceTempView("formatted_moving_average_1_days_df_tbl")
 
   count_average_df=spark.sql(
     f"""
       select 
         table_name,
         column_name,
-        src_sys_cd,
+        dt_column,
         project,
+        src_sys_cd,
         formatted_date,
         qty_sum,
         row_num,
-        last_2_days_Average,
-        (qty_sum-last_2_days_Average) as Variance_Quantity_Sum_for_Today,
-        concat(format_number((((qty_sum-last_2_days_Average)/last_2_days_Average)*100),3),' %') as Variance_percentage_for_Today 
+        last_1_days_Average,
+        (qty_sum-last_1_days_Average) as Variance_Quantity_Sum_for_Today,
+        concat(format_number((((qty_sum-last_1_days_Average)/last_1_days_Average)*100),3),' %') as Variance_percentage_for_Today 
       from (
         select 
           table_name,
           column_name,
-          src_sys_cd,
+          dt_column,
           project,
+          src_sys_cd,
           formatted_date,
           qty_sum,
           row_num,
-          lag(Moving_Average, 1) over(partition by table_name,column_name,src_sys_cd,project order by formatted_date asc) as last_2_days_Average  
-        from formatted_moving_average_2_days_df_tbl 
+          lag(Moving_Average, 1) over(partition by table_name,column_name,dt_column,src_sys_cd,project order by formatted_date asc) as last_1_days_Average  
+        from formatted_moving_average_1_days_df_tbl 
         where row_num between {N_days-1} and {N_days+1}
         ) a 
       where a.row_num={N_days}-1
@@ -661,7 +673,7 @@ if generate_email == 'Y':
     """
       select 
         a.*,
-        b.last_2_days_Average,
+        b.last_1_days_Average,
         b.Variance_Quantity_Sum_for_Today,
         b.Variance_percentage_for_Today
       from pivoted_df_tbl a 
@@ -690,7 +702,10 @@ if generate_email == 'Y':
   
   # round each date column value to zero decimals and truncate 
   date_cols = sorted([i for i in pandas_df.columns if i.startswith('2')]) 
-  metric_cols = ['last_2_days_Average', 'Variance_Quantity_Sum_for_Today']
+  metric_cols = [
+#     'last_1_days_Average', 
+    'Variance_Quantity_Sum_for_Today'
+  ]
   
   for c in date_cols+metric_cols:
 #     pandas_df[c] = pandas_df[c].round().apply(lambda x: "{:,}".format(math.trunc(x)))
