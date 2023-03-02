@@ -11,27 +11,29 @@ from collections import defaultdict
 import plotly.graph_objects as go
 from os import popen, environ
 
+# boto3.setup_default_session(region_name='us-east-1')
+
 # COMMAND ----------
 
 config = {"OutputLocation": "s3://aws-athena-query-results-903987810958-us-east-1/"}
 AWS_REGION = "us-east-1" 
-# ACCESS_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser_UserName')
-# SECRET_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser_PassWord')
+ACCESS_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser_UserName')
+SECRET_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser_PassWord')
 
-ACCESS_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser-test_UserName')
-SECRET_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser-test_PassWord')
+# ACCESS_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser-test_UserName')
+# SECRET_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser-test_PassWord')
 
-my_session = boto3.Session(
-  aws_access_key_id=ACCESS_KEY,
-  aws_secret_access_key=SECRET_KEY,
-  region_name=AWS_REGION,
-)
-
-# boto3.setup_default_session(
+# my_session = boto3.Session(
 #   aws_access_key_id=ACCESS_KEY,
 #   aws_secret_access_key=SECRET_KEY,
 #   region_name=AWS_REGION,
 # )
+
+boto3.setup_default_session(
+  aws_access_key_id=ACCESS_KEY,
+  aws_secret_access_key=SECRET_KEY,
+  region_name=AWS_REGION,
+)
 
 # COMMAND ----------
 

@@ -32,8 +32,8 @@ generate_email = dbutils.widgets.get("generate_email")
 
 fields_data = [
   ('f_purchase_order', 'po_qty', 'po_crt_dt'), 
-  ('f_po_receipt', 'recpt_txn_qty', 'txn_date'), 
-  ('f_po_receipt', 'recpt_base_qty', 'txn_date'), 
+  ('f_po_receipt', 'recpt_txn_qty', 'recpt_date'), 
+  ('f_po_receipt', 'recpt_base_qty', 'recpt_date'), 
   ('f_invntry_bal_dly_hist', 'on_hand_qty', 'capture_dt'), 
   ('f_invntry_txn', 'txn_qty', 'txn_date'),
   ('f_forecast', 'qty', 'capture_dt'),
@@ -243,41 +243,45 @@ def generate_querry_according_to_view(
    
   if Is_src_sys_cd == True:
     return  f"""
-      select 
-        '{view_name}' as table_name,
-        '{field_name}' as column_name,
-        '{dt_column}' as dt_column,
-        '{project_cntrl_tbl}' as project_cntrl_tbl,
-        src_sys_cd,
-        '{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,
-        sum({field_name}) as qty_sum,
-        date_format(current_timestamp,'yMMdd')  as date,
-        cast(date_format(current_timestamp,'y') as string) year ,
-        cast(date_format(current_timestamp,'MM') as string) month, 
-        cast(date_format(current_timestamp,'dd') as string) day,
-        '{table_name_cntrl_tbl}' as table_name_cntrl_tbl 
-      from {view_name}
-      where src_sys_cd like '{search_like_src_sys_cd}' 
-        and {dt_column} = replace(cast(current_date() as string), '-', '')
-      group by src_sys_cd
+      select *
+      from (
+        select 
+          '{view_name}' as table_name,
+          '{field_name}' as column_name,
+          '{dt_column}' as dt_column,
+          '{project_cntrl_tbl}' as project_cntrl_tbl,
+          src_sys_cd,
+          '{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,
+          sum({field_name}) as qty_sum,
+          case when length({dt_column})>8 then replace(substring({dt_column},1,10),'-','') else {dt_column} end as date,
+          '{table_name_cntrl_tbl}' as table_name_cntrl_tbl 
+        from {view_name}
+        where src_sys_cd like '{search_like_src_sys_cd}' 
+        group by src_sys_cd, {dt_column}
+      ) as t
+      where to_timestamp(t.date,'yyyyMMdd')>=(current_timestamp - interval '10' day)
+        and to_timestamp(t.date,'yyyyMMdd')<=current_timestamp
       ;
     """
   else:
     return  f"""
-      select 
-        '{view_name}' as table_name,
-        '{field_name}' as column_name,
-        '{dt_column}' as dt_column,
-        '{project_cntrl_tbl}' as project_cntrl_tbl,
-        'NA' as src_sys_cd ,
-        '{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,
-        sum({field_name}) as qty_sum,
-        date_format(current_timestamp,'yMMdd')  as date,
-        cast(date_format(current_timestamp,'y') as string) year ,
-        cast(date_format(current_timestamp,'MM') as string) month, 
-        cast(date_format(current_timestamp,'dd') as string) day,
-        '{table_name_cntrl_tbl}' as table_name_cntrl_tbl 
-      from {view_name}
+      select *
+      from (
+        select 
+          '{view_name}' as table_name,
+          '{field_name}' as column_name,
+          '{dt_column}' as dt_column,
+          '{project_cntrl_tbl}' as project_cntrl_tbl,
+          src_sys_cd,
+          '{src_sys_cd_cntrl_tbl}' as src_sys_cd_cntrl_tbl,
+          sum({field_name}) as qty_sum,
+          case when length({dt_column})>8 then replace(substring({dt_column},1,10),'-','') else {dt_column} end as date,
+          '{table_name_cntrl_tbl}' as table_name_cntrl_tbl 
+        from {view_name}
+        group by src_sys_cd, {dt_column}
+      ) as t
+      where to_timestamp(t.date,'yyyyMMdd')>=(current_timestamp - interval '10' day)
+        and to_timestamp(t.date,'yyyyMMdd')<=current_timestamp
       ;
     """
   
@@ -296,12 +300,11 @@ def read_and_generate_query(list_of_tables,bucket,src_sys_cd_cntrl_tbl,table_nam
     try:
       Is_src_sys_cd = read_table_and_create_view(bucket,single_path,view_name,"delta") 
       querry = querry + generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name,dt_column)+'\n union '
-
+#       print(querry)
     except Exception as e:
       try:
         Is_src_sys_cd = read_table_and_create_view(bucket,single_path,view_name,"parquet") 
         querry = querry + generate_querry_according_to_view(view_name,Is_src_sys_cd,src_sys_cd_cntrl_tbl,table_name_cntrl_tbl,project_cntrl_tbl,search_like_src_sys_cd,field_name,dt_column)+'\n union '
-
       except Exception as e:
         print(e)
         continue
@@ -318,10 +321,10 @@ TableFields = [
   StructField("src_sys_cd",StringType(),True),
   StructField("src_sys_cd_cntrl_tbl",StringType(),False),
   StructField("qty_sum",LongType(),False),
-  StructField("date",StringType(),False),#change
-  StructField("year",StringType(),False),
-  StructField("month",StringType(),False),
-  StructField("day",StringType(),False),
+  StructField("date",StringType(),False), #change
+#   StructField("year",StringType(),False),
+#   StructField("month",StringType(),False),
+#   StructField("day",StringType(),False),
   StructField("table_name_cntrl_tbl",StringType(),False),
 ]
 
@@ -396,9 +399,9 @@ df_incremental_data_for_today=spark.sql(
       date,
       table_name_cntrl_tbl,
       src_sys_cd_cntrl_tbl,
-      year,
-      month,
-      day 
+      substring(date, 1, 4) as year,
+      substring(date, 5, 2) as month,
+      substring(date, 7, 2) as day
     from tbl_incremental_data
   """
 )
@@ -409,6 +412,7 @@ df_incremental_data_for_today.createOrReplaceTempView("tbl_incremental_data_for_
 # MAGIC %sql
 # MAGIC select *
 # MAGIC from tbl_incremental_data_for_today 
+# MAGIC limit 10
 # MAGIC ;
 
 # COMMAND ----------
@@ -737,6 +741,7 @@ if generate_email == 'Y':
 # COMMAND ----------
 
 print(pandas_df.src_sys_cd.unique())
+print(pandas_df.dt_column.unique())
 pandas_df.head()
 
 # COMMAND ----------
@@ -786,7 +791,7 @@ if generate_email == 'Y':
 #       "EDP-PlatformOps@thermofisher.onmicrosoft.com",
       "raju.gokaraju@thermofisher.com",
       "raul.martinez3@thermofisher.com",
-      "lekhana.potla@thermofisher.com",
+#       "lekhana.potla@thermofisher.com",
     ]
     
 
