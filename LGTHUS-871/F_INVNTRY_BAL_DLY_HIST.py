@@ -1504,3 +1504,130 @@ tvko.createOrReplaceTempView("tvko")
 # MAGIC     on match_UOM.item_nbr = unmatch_uom.item_nbr
 # MAGIC   group by match_UOM.item_nbr,match_UOM.plant_cd,match_UOM.lot_nbr,match_UOM.invntry_loc_name,match_UOM.base_uom,match_UOM.IMSRP3,match_UOM.IMLOTS,match_UOM.IMSRP1,match_UOM.IMSRP2,match_UOM.PRLITM,match_UOM.PRMCU
 # MAGIC )
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #20230302
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC 
+# MAGIC /**************************************************************************
+# MAGIC Artefact Name :- inventory Balance
+# MAGIC Description :- f_inventory_balance fro nav_ger 
+# MAGIC -------------------------------------------------------------------------------------------------------------------------------
+# MAGIC Change Log
+# MAGIC Version :        Date :                                Description                                     Changed By
+# MAGIC -------------------------------------------------------------------------------------------------------------------------------
+# MAGIC 0.0            04/13/2022                      First draft of sql file                               Abhishek Ranjan
+# MAGIC 1.0            06/16/2022                      Repleced source table itemconsumption_sales           Bhaskar Reddy
+# MAGIC                                                with item_qty_on_hand    
+# MAGIC 1.1            02/09/2022                      Replaced blocked_qty logic                            Raul Martinez
+# MAGIC                                                Replaced qa_inspn_qty logic                           Raul Martinez
+# MAGIC                                                Replaced avail_qty logic                              Raul Martinez
+# MAGIC                                                Added consignment_qty logic                           Raul Martinez
+# MAGIC                                                Added prod_key column                                 Raul Martinez
+# MAGIC                                                Added plant_key column                                Raul Martinez
+# MAGIC 1.2			   17/02/2023					   Update stk_uom_cd, stk_uom_nm columns			     Neha Chaturvedi	 
+# MAGIC 1.3            03/02/2023                      Updated blocked_qty, avail_qty columns                Raul Martinez
+# MAGIC **************************************************************************/
+# MAGIC 
+# MAGIC select   
+# MAGIC   'nav_ger' as src_sys_cd,					
+# MAGIC   cast(itmqtyOH.item_no_ as string) as item_nbr , 
+# MAGIC   cast(ItemWOPD.Description as string) as item_desc , 
+# MAGIC   'NA' as item_type , 
+# MAGIC   'NA' as item_type_desc , 
+# MAGIC   'CAGER' as plant_cd , 
+# MAGIC   cast(date_format(if(date_format(current_timestamp,'HH')>='0' and date_format(current_timestamp,'HH')<='12',date_sub(current_date,1),current_date),'yMMdd') as string) as capture_dt,			
+# MAGIC   cast(0 as decimal(38,0)) as capture_yr_mth_nbr , 
+# MAGIC   'NA' as lot_nbr , 
+# MAGIC   cast(itmqtyOH.Location_Code as string) as invntry_loc_cd , 
+# MAGIC   cast(location.Name as string) invntry_loc_name , 
+# MAGIC   'NA' as strg_bin_cd , 
+# MAGIC   'NA' as co_cd , 
+# MAGIC   'NA' as co_name , 
+# MAGIC   'NA' as co_curncy_cd , 
+# MAGIC   'NA' as invntry_stk_type_cd , 
+# MAGIC   'NA' as valuation_cd , 
+# MAGIC   'NA' as recpt_dt , 
+# MAGIC --   cast(0 as double) as avail_qty, 
+# MAGIC --   case when trim(cast(itmqtyOH.Location_Code as string)) in ('HAUPT','GERMERING','LIN','MATRIUM','USED') 
+# MAGIC --     then cast(itmqtyOH.qty_on_hand as double) 
+# MAGIC --     else 0 end as avail_qty,
+# MAGIC   case when trim(cast(itmqtyOH.Location_Code as string)) in ('HAUPT','GERMERING','LIN','MATRIUM','USED','T-GER') 
+# MAGIC     then cast(itmqtyOH.qty_on_hand as double) 
+# MAGIC     else 0 end as avail_qty,
+# MAGIC   cast(itmqtyOH.qty_on_hand as double) as on_hand_qty, 
+# MAGIC   cast(0 as double) as on_hold_qty , 
+# MAGIC   cast(0 as double) as transfer_qty , 
+# MAGIC --   cast(0 as double) as qa_inspn_qty, 
+# MAGIC   case when trim(cast(itmqtyOH.Location_Code as string)) in ('QS-WE','QS-RÜCK') 
+# MAGIC     then cast(itmqtyOH.qty_on_hand as double) 
+# MAGIC     else 0 
+# MAGIC     end as qa_inspn_qty,
+# MAGIC --   cast(0 as double) as blocked_qty, 
+# MAGIC --   case when trim(cast(itmqtyOH.Location_Code as string)) in ('FG-REP','MARKETING','SEED','MKT_DEMO','INT-REP') 
+# MAGIC --     then cast(itmqtyOH.qty_on_hand as double) 
+# MAGIC --     else 0 
+# MAGIC --     end as blocked_qty,
+# MAGIC   case when trim(cast(itmqtyOH.Location_Code as string)) in ('FG-REP','MARKETING','SEED','MKT_DEMO','INT-REP','QS-DEFEKT')
+# MAGIC     then cast(itmqtyOH.qty_on_hand as double) 
+# MAGIC     else 0 
+# MAGIC     end as blocked_qty,
+# MAGIC   cast(0 as double) as rstrct_qty , 
+# MAGIC   cast(0 as double) as unit_cost_co_amt , 
+# MAGIC   cast(0 as double) as unit_cost_lcur_amt , 
+# MAGIC   cast(0 as double) as unit_cost_co_pmar_amt , 
+# MAGIC   cast(0 as double) as co_curncy_mth_pmar_rt , 
+# MAGIC   cast(0 as decimal(38,6)) as consignment_qty,									
+# MAGIC   'NA' as hfm_entity , 
+# MAGIC   'NA' as business_unit , 
+# MAGIC   'NA' as div_cd , 
+# MAGIC   'NA' as lot_stat_cd , 
+# MAGIC   'NA' as lot_stat_nm , 
+# MAGIC   'NA' as prim_loc_flg , 
+# MAGIC   'NA' as flr_stk_cd , 
+# MAGIC   'NA' as rejected_mat_flag , 
+# MAGIC -- ItemWOPD.Unit_of_Measure_Code as stk_uom_cd ,
+# MAGIC -- itmqtyOH.Unit_of_Measure_Code as stk_uom_cd ,
+# MAGIC   'NA' as stk_uom_cd ,
+# MAGIC --   Unit_of_Measure.Description as stk_uom_nm , 
+# MAGIC   'NA' as stk_uom_nm ,
+# MAGIC   'NA' as prod_family , 
+# MAGIC   'NA' as prod_fam_typ , 
+# MAGIC   'NA' as src_crt_by , 
+# MAGIC   'NA' as src_crt_ts , 
+# MAGIC   cast(current_timestamp() as string) as rec_crt_ts, 
+# MAGIC   cast(current_timestamp() as string) as rec_updt_ts,
+# MAGIC   'nav_ger' || '|' || trim(itmqtyOH.Item_No_) as prod_key,
+# MAGIC   'nav_ger' || '|' || 'CAGER' as plant_key														  
+# MAGIC from item_qty_on_hand itmqtyOH
+# MAGIC left outer join ItemWOPD 
+# MAGIC   on itmqtyOH.Item_No_=ItemWOPD.no_
+# MAGIC left outer join location 
+# MAGIC   on itmqtyOH.Location_Code=location.code
+# MAGIC --   left outer join Unit_of_Measure on (itmqtyOH.Unit_of_Measure_Code=Unit_of_Measure.Code)
+# MAGIC ;
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+
