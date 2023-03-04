@@ -7,7 +7,6 @@
 
 import awswrangler as wr
 import boto3
-from collections import defaultdict
 import plotly.graph_objects as go
 from os import popen, environ
 
@@ -15,12 +14,38 @@ boto3.setup_default_session(region_name='us-east-1')
 
 # COMMAND ----------
 
+# config = {"OutputLocation": "s3://aws-athena-query-results-903987810958-us-east-1/"}
+AWS_REGION = "us-east-1" 
+ACCESS_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser_UserName')
+SECRET_KEY = dbutils.secrets.get('COMM_S3_BiGen_Scope','S3_BiGen_etluser_PassWord')
+
+my_session = boto3.Session(
+  aws_access_key_id=ACCESS_KEY,
+  aws_secret_access_key=SECRET_KEY,
+  region_name=AWS_REGION,
+)
+
+glue_client = boto3.client(
+  'glue',
+  aws_access_key_id=ACCESS_KEY,
+  aws_secret_access_key=SECRET_KEY,
+  region_name=AWS_REGION,
+)
+
+# boto3.setup_default_session(
+#   aws_access_key_id=ACCESS_KEY,
+#   aws_secret_access_key=SECRET_KEY,
+#   region_name=AWS_REGION,
+# )
+
+# COMMAND ----------
+
+# functions for sniffing SQL files
 def process_sql_file(bucket, key):
     s3 = boto3.resource('s3')
     obj = s3.Object(bucket, key)
     string = ''
     for line in obj.get()['Body']._raw_stream:
-        
         line = line.decode()
         line = line.rstrip()
         line = line.split('//')[0]
@@ -64,6 +89,13 @@ def find_table_names_from_sql_file(bucket, key):
 
 # COMMAND ----------
 
+# other utility functions
+def get_athena_table_s3_path(db, tbl):
+  tbl_data = glue_client.get_table(DatabaseName='tfsdl_edp_common_dims', Name='d_product')
+  return tbl_data['Table']['StorageDescriptor']['Location']
+
+# COMMAND ----------
+
 tables_list = [
   'f_invntry_bal_dly_hist', 
   'f_forecast', 
@@ -83,24 +115,39 @@ tables_list = [
 
 # COMMAND ----------
 
-main_dict = defaultdict(dict) # strucutre as follows --> {table_name: sql_file_name: list_of_input_tables}
-for t in tables_list:
+glue_db_info = {}
+for db in wr.catalog.databases(boto3_session=my_session).Database:
+  print(db)
+  df = wr.catalog.tables(database=db, boto3_session=my_session)
+  df['s3_path'] = [get_athena_table_s3_path(i,j) for i,j in zip(df.Database, df.Table)]
+  glue_db_info[db]=df
+
+# COMMAND ----------
+
+glue_db_info.keys()
+
+# COMMAND ----------
+
+data = [] # tuple --> (source_table_name, target_table_name, sql_file_name, source_column_names, target_column_names)
+for t_table in tables_list:
   print(t)
-  home_bucket = 'tfsdl-edp-supplychain-prod' if (t.startswith('f_') or t.startswith('cntrl')) else 'tfsdl-edp-common-dims-prod'
-  sql_files_list = wr.s3.list_objects(f's3://{home_bucket}/workspace/{t}/')
-#   print(sql_files_list)
-  
-  for s in sql_files_list:
-    bucket = s.split('/')[2]
-    key = '/'.join(s.split('/')[3:]) 
-    fn = s.split('/')[-1]
+  home_bucket = 'tfsdl-edp-supplychain-prod' if (t.startswith('f_') or t.startswith('cntrl')) else 'tfsdl-edp-common-dims-prod'  
+  for sql_fp in wr.s3.list_objects(f's3://{home_bucket}/workspace/{t}/'):
+    bucket = sql_fp.split('/')[2]
+    key = '/'.join(sql_fp.split('/')[3:]) 
+    file_name = sql_fp.split('/')[-1]
     
-#     main_dict[t][fn] = find_table_names_from_sql_file(bucket, key)
     try:
-      main_dict[t][fn] = find_table_names_from_sql_file(bucket, key)
+      source_tables_list = find_table_names_from_sql_file(bucket, key)
     except:
-      print(f'sql file not processed: {s}')
+      print(f'sql file not processed: {file_name}')
       pass
+    
+    for s_table in source_tables_list:
+      s_column_names = 
+      t_column_names = 
+      data.append((s_table, t_table, file_name, ))
+      
 
 # COMMAND ----------
 
@@ -142,28 +189,28 @@ print(main_dict_cleaned.keys())
 
 # COMMAND ----------
 
-# # find s3_path_delta for target tables
-# directories_to_sniff = [
-# #   's3://tfsdl-edp-common-dims-prod/processed/',
-#   's3://tfsdl-edp-supplychain-prod/processed/',
-# ]
-# folders_list = main_dict_cleaned.keys()
+# find s3_path_delta for target tables
+directories_to_sniff = [
+  's3://tfsdl-edp-common-dims-prod/processed/',
+  's3://tfsdl-edp-supplychain-prod/processed/',
+]
+folders_list = main_dict_cleaned.keys()
 
-# for dir_ in directories_to_sniff:
-#   for fp in wr.s3.list_directories(dir_):
+for dir_ in directories_to_sniff:
+  for fp in wr.s3.list_directories(dir_):
     
-#     folder_name = fp.split('/')[-2]
-#     if folder_name in folders_list:
-#       main_dict_cleaned[folder_name]['s3_path_delta']=fp
+    folder_name = fp.split('/')[-2]
+    if folder_name in folders_list:
+      main_dict_cleaned[folder_name]['s3_path_delta']=fp
 
 # COMMAND ----------
 
-# main_dict_cleaned
+
 
 # COMMAND ----------
 
 # verify every target table was found
-# assert(sum(['s3_path_delta' in v.keys() for k,v in main_dict_cleaned.items()]) == len(main_dict_cleaned.keys()))
+assert(sum(['s3_path_delta' in v.keys() for k,v in main_dict_cleaned.items()]) == len(main_dict_cleaned.keys()))
 
 # COMMAND ----------
 
@@ -181,52 +228,32 @@ print(len(source_tables))
 
 # COMMAND ----------
 
+source_tables
+
+# COMMAND ----------
+
+databases = wr.catalog.databases(boto3_session=my_session)
+
+# COMMAND ----------
+
+glue_db_info = {}
+for db in wr.catalog.databases(boto3_session=my_session).Database:
+  glue_db_info[db]=wr.catalog.tables(database=db, boto3_session=my_session)
+
+# COMMAND ----------
+
+glue_db_info['4s_db_test']
+
+# COMMAND ----------
+
 
 
 # COMMAND ----------
 
-# find all dependent tables for f_cntrl_tower_sku_site
-all_tables_f_cntrl_tower_sku_site = list(set(sum([v for k,v in main_dict_cleaned['f_cntrl_tower_sku_site'].items()],[])))
 
-f_d_tables_f_cntrl_tower_sku_site = [i for i in all_tables_f_cntrl_tower_sku_site if ('d_' in i) or ('f_' in i)]
-
-f_d_tables_f_cntrl_tower_sku_site
 
 # COMMAND ----------
 
-agg_list = []
-for t in f_d_tables_f_cntrl_tower_sku_site:
-  agg_list+=list(set(sum([v for k,v in main_dict_cleaned['d_product_cost'].items()],[])))
-
-# COMMAND ----------
-
-combined_tables = all_tables_f_cntrl_tower_sku_site+agg_list
-print(len(combined_tables))
-
-combined_tables = list(set([i.split('.')[-1] for i in combined_tables]))
-print(len(combined_tables))
-
-print(combined_tables)
-
-# COMMAND ----------
-
-# related tables to f_cntrl_tower_sku_site
-"""
-['amflib_itmrvb', 'mbew', 'f4105', 'pdfns', 'eket', 'mseg', 'itemwopd', 'amflib3_itmrvb', 'amflib_itmrva', 'icfpm', 'ekpo', 'marc', 'amflib9_itmrvc', 'amflib_itmrvc', 'inmastx', 'sct_det', 'amflib3_itmrvc', 'mcts_twk', 't001', 
-
-'d_product_cost', 'icitem', 'item_csp', 'f4101_adt', 'd_product', 'mkpf', 'PurchaseHeaderWOPD', 'item_twk', 'amflib9_itmrva', 'tvko', 'amflib3_yaahrep', 'mcts_csp', 'mct_consumer_source_mapping', 'amflib_yaahrep', 'ldfpp', 'product', 'imc_twk', 'ancos00f', 'd_curncy_mth_rt', 'd_date', 'edp_lkup', 'f4111', 'purchase_line', 'anpar50f', 'd_product_supplier_xref', 'amflib9_yaahrep', 'mct_supplier_corporate_recognition_data', 'ekko', 'cst_item_costs', 'to_date', 'amflib9_itmrvb', 'mbewh', 'd_tamr_prod_classification', 'anpar00f', 'amflib3_itmrva', 'supplementaryitem', 'f_purchase_order', 'iciloc', 'currency', 'mtl_system_items_b', 'imc_csp', 'Vendor_WO_Employee', 'd_product_plant']
-"""
-
-# databases for all the tables above
-"""
-tfsdl_cad_infor_xa_oak_delta
-tfsdl_e1lsg_delta
-tfsdl_cad_expandable_delta
-tfsdl_corp_pr1_delta
-tfsdl_cmd_navger_delta
-tfsdl_cad_infor_xa_frn_delta
-tfsdl_cad_infor_xa_adl_delta
-"""
 
 
 # COMMAND ----------
@@ -287,7 +314,7 @@ def plot_sankey_for_target_tables(all_tables_dict, target_tables_list):
 plot_sankey_for_target_tables(
   main_dict_cleaned,
   [
-    'f_invntry_bal_dly_hist'
+    'f_invntry_bal_dly_hist', 
 #     'f_forecast', 
 #     'f_po_receipt', 
 #     'f_purchase_order', 
