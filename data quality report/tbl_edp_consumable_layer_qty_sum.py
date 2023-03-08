@@ -570,7 +570,7 @@ if generate_email == 'Y':
   #s2_df.printSchema()
   s2_df.createOrReplaceTempView("s2_df_tbl")
 
-  number_of_days_back_to_show = 2
+  number_of_days_back_to_show = 5
   filtered_df=spark.sql(
     f"""
       select * 
@@ -739,6 +739,10 @@ if generate_email == 'Y':
   # print(html_table)
 
 # COMMAND ----------
+
+# update number's date format with words
+new_columns = [f'{pd.to_datetime(i).month_name()[:3]} {pd.to_datetime(i).day}, {pd.to_datetime(i).year}' if i.startswith('2') else i for i in pandas_df.columns]
+pandas_df.set_axis(new_columns, axis=1, inplace=True)
 
 print(pandas_df.src_sys_cd.unique())
 print(pandas_df.dt_column.unique())
