@@ -721,6 +721,10 @@ if generate_email == 'Y':
     pandas_df[c][d1.apply(rule)|d2.apply(rule)] = 'nan'
     
 #   pandas_df.drop(['project'], axis=1, inplace=True)
+
+  # update number's date format with words
+  new_columns = [f'{pd.to_datetime(i).month_name()[:3]} {pd.to_datetime(i).day}, {pd.to_datetime(i).year}' if i.startswith('2') else i for i in pandas_df.columns]
+  pandas_df.set_axis(new_columns, axis=1, inplace=True)
   
   # Option 1: Render HTML using Pandas Styler
   styler = pandas_df.style.set_table_styles([{
@@ -739,10 +743,6 @@ if generate_email == 'Y':
   # print(html_table)
 
 # COMMAND ----------
-
-# update number's date format with words
-new_columns = [f'{pd.to_datetime(i).month_name()[:3]} {pd.to_datetime(i).day}, {pd.to_datetime(i).year}' if i.startswith('2') else i for i in pandas_df.columns]
-pandas_df.set_axis(new_columns, axis=1, inplace=True)
 
 print(pandas_df.src_sys_cd.unique())
 print(pandas_df.dt_column.unique())
