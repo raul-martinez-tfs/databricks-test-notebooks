@@ -570,7 +570,8 @@ if generate_email == 'Y':
   #s2_df.printSchema()
   s2_df.createOrReplaceTempView("s2_df_tbl")
 
-  number_of_days_back_to_show = 5
+#   number_of_days_back_to_show = 5
+  number_of_days_back_to_show=2
   filtered_df=spark.sql(
     f"""
       select * 
@@ -795,6 +796,7 @@ if generate_email == 'Y':
 #       "EDP-PlatformOps@thermofisher.onmicrosoft.com",
       "raju.gokaraju@thermofisher.com",
       "raul.martinez3@thermofisher.com",
+      "deepthi.veeramachaneni@thermofisher.com",
 #       "lekhana.potla@thermofisher.com",
     ]
     
@@ -869,6 +871,14 @@ if generate_email == 'Y':
 
 
   email_report()
+
+# COMMAND ----------
+
+
+
+# COMMAND ----------
+
+
 
 # COMMAND ----------
 
