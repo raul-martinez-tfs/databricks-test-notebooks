@@ -5,6 +5,7 @@
 # COMMAND ----------
 
 import plotly.express as px
+import pandas as pd
 
 # COMMAND ----------
 
@@ -224,6 +225,10 @@ for tbl, qty, dt in tbl_qty_dt_tuple:
 
 # COMMAND ----------
 
+single_day_data[0][3].query("src_sys_cd == 'nav_ger'").sort_values(by='po_crt_dt')[:20]
+
+# COMMAND ----------
+
 for tbl, qty, dt, df in single_day_data:
   print('********** analyze variance on day values --> ', tbl, '**********')
   df[dt] =  pd.to_datetime(df[dt], format='%Y%m%d')
@@ -335,7 +340,7 @@ for tbl, qty, dt in tbl_qty_dt_tuple:
 
 # COMMAND ----------
 
-single_day_data[0][3]
+single_day_data[0][3].query("src_sys_cd == 'nav_ger'").sort_values(by='po_crt_dt')[:20]
 
 # COMMAND ----------
 
